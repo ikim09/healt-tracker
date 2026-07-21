@@ -5,11 +5,12 @@ workflows:
     integrations:
       app_store_connect: Codemagic Admin
     environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.ikim.healthtracker
       node: 22.12.0
       xcode: latest
       cocoapods: default
-      vars:
-        APP_ID: com.ikim.healthtracker
     scripts:
       - name: Install dependencies
         script: npm install
@@ -34,38 +35,15 @@ workflows:
         script: |
           find ios -name "Podfile" -execdir pod install \;
 
-      - name: Set up keychain
-        script: keychain initialize
-
-      - name: Generate distribution certificate private key
+      - name: Set up code signing
         script: |
-          openssl genrsa -out /tmp/cert_key.pem 2048
-
-      - name: Fetch signing files (creates if missing)
-        script: |
-          app-store-connect fetch-signing-files "com.ikim.healthtracker" \
-            --type IOS_APP_STORE \
-            --certificate-key=@file:/tmp/cert_key.pem \
-            --create
-
-      - name: Add certificates to keychain
-        script: keychain add-certificates
-
-      - name: Apply signing profiles
-        script: xcode-project use-profiles
+          xcode-project use-profiles
 
       - name: Set build number
         script: |
           BUILD_NUMBER=$(date +%Y%m%d%H%M)
           agvtool new-version -all $BUILD_NUMBER
         working_directory: ios/App
-
-      - name: List iOS structure
-        script: |
-          echo "=== Cerco il workspace ==="
-          find ios -name "*.xcworkspace" -type d
-          echo "=== Cerco lo scheme ==="
-          find ios -name "*.xcodeproj" -type d
 
       - name: Build IPA
         script: |
