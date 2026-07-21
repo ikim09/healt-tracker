@@ -1,0 +1,60 @@
+workflows:
+  ios-release:
+    name: HealthTracker iOS Release
+    max_build_duration: 60
+    environment:
+      node: 20.0.0
+      xcode: latest
+      cocoapods: default
+      vars:
+        APP_ID: com.ikim.healthtracker
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.ikim.healthtracker
+    scripts:
+      - name: Install dependencies
+        script: npm install
+
+      - name: Build web app
+        script: npm run build
+
+      - name: Capacitor — install CLI
+        script: npm install -g @capacitor/cli
+
+      - name: Capacitor — add iOS (if needed)
+        script: |
+          if [ ! -d "ios" ]; then
+            npx cap add ios
+          fi
+
+      - name: Capacitor — sync
+        script: npx cap sync ios
+
+      - name: Install CocoaPods
+        script: |
+          cd ios/App
+          pod install
+
+      - name: Set build number
+        script: |
+          BUILD_NUMBER=$(date +%Y%m%d%H%M)
+          agvtool new-version -all $BUILD_NUMBER
+        working_directory: ios/App
+
+      - name: Build IPA for App Store
+        script: |
+          xcode-project use-profiles
+          xcode-project build-ipa \
+            --workspace ios/App/App.xcworkspace \
+            --scheme App
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        submit_to_app_store: false
