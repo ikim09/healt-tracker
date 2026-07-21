@@ -61,7 +61,7 @@ workflows:
           agvtool new-version -all $BUILD_NUMBER
         working_directory: ios/App
 
-        - name: List iOS structure
+        - name List iOS structure
         script: |
           echo "=== Cerco il workspace ==="
           find ios -name "*.xcworkspace" -type d
