@@ -61,8 +61,18 @@ workflows:
           agvtool new-version -all $BUILD_NUMBER
         working_directory: ios/App
 
+        - name: List iOS structure
+        script: |
+          echo "=== Cerco il workspace ==="
+          find ios -name "*.xcworkspace" -type d
+          echo "=== Cerco lo scheme ==="
+          find ios -name "*.xcodeproj" -type d
+
       - name: Build IPA
-        script: xcode-project build-ipa --workspace ios/App/App.xcworkspace --scheme App
+        script: |
+          WORKSPACE=$(find ios -name "*.xcworkspace" -type d | head -1)
+          echo "Uso workspace: $WORKSPACE"
+          xcode-project build-ipa --workspace "$WORKSPACE" --scheme App
 
     artifacts:
       - build/ios/ipa/*.ipa
