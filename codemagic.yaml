@@ -22,6 +22,7 @@ workflows:
 
       - name: Add iOS
         script: |
+          npm install @capacitor/ios
           if [ ! -d "ios" ]; then
             npx cap add ios
           fi
