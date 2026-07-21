@@ -62,10 +62,7 @@ workflows:
         working_directory: ios/App
 
       - name: Build IPA
-        script: |
-          xcode-project build-ipa \
-            --workspace ios/App/App.xcworkspace \
-            --scheme App
+        script: xcode-project build-ipa --workspace ios/App/App.xcworkspace --scheme App
 
     artifacts:
       - build/ios/ipa/*.ipa
