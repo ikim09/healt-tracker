@@ -1,0 +1,8 @@
+{
+  "appId": "com.ikim.healthtracker",
+  "appName": "Health Tracker",
+  "webDir": "dist",
+  "android": {
+    "allowMixedContent": false
+  }
+}

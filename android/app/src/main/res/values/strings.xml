@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Health Tracker</string>
+    <string name="title_activity_main">Health Tracker</string>
+    <string name="package_name">com.ikim.healthtracker</string>
+    <string name="custom_url_scheme">com.ikim.healthtracker</string>
+</resources>
