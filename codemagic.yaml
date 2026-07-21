@@ -32,8 +32,7 @@ workflows:
 
       - name: CocoaPods
         script: |
-          cd ios/App
-          pod install
+          find ios -name "Podfile" -execdir pod install \;
 
       - name: Set up keychain
         script: keychain initialize
