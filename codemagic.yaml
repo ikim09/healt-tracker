@@ -1,4 +1,3 @@
-
 workflows:
   ios-release:
     name: HealthTracker iOS Release
@@ -61,7 +60,7 @@ workflows:
           agvtool new-version -all $BUILD_NUMBER
         working_directory: ios/App
 
-        - name List iOS structure
+      - name: List iOS structure
         script: |
           echo "=== Cerco il workspace ==="
           find ios -name "*.xcworkspace" -type d
@@ -83,3 +82,5 @@ workflows:
         auth: integration
         submit_to_testflight: true
         submit_to_app_store: false
+
+
