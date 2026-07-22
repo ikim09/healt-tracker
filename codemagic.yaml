@@ -1,3 +1,4 @@
+
 workflows:
   ios-release:
     name: HealthTracker iOS Release
@@ -5,9 +6,6 @@ workflows:
     integrations:
       app_store_connect: Codemagic Admin
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.ikim.healthtracker
       node: 22.12.0
       xcode: latest
       cocoapods: default
@@ -57,7 +55,32 @@ workflows:
         script: |
           find ios -name "Podfile" -execdir pod install \;
 
-      - name: Set up code signing
+      - name: Set up keychain
+        script: keychain initialize
+
+      - name: Generate private key for certificate
+        script: |
+          ssh-keygen -t rsa -b 2048 -m PEM -f /tmp/dist_key -q -N ""
+          echo "Chiave privata generata in /tmp/dist_key"
+
+      - name: Create distribution certificate
+        script: |
+          app-store-connect certificates create \
+            --type IOS_DISTRIBUTION \
+            --certificate-key=@file:/tmp/dist_key \
+            --save
+
+      - name: Fetch signing files
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --certificate-key=@file:/tmp/dist_key \
+            --create
+
+      - name: Add certificates to keychain
+        script: keychain add-certificates
+
+      - name: Apply profiles
         script: xcode-project use-profiles
 
       - name: Set build number
@@ -81,5 +104,3 @@ workflows:
         auth: integration
         submit_to_testflight: true
         submit_to_app_store: false
-
-
