@@ -1,4 +1,5 @@
 
+
 workflows:
   ios-release:
     name: HealthTracker iOS Release
@@ -6,10 +7,11 @@ workflows:
     integrations:
       app_store_connect: Codemagic Admin
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.ikim.healthtracker
       node: 22.12.0
+      xcode: latest
+      cocoapods: default
+      vars:
+        APP_ID: com.ikim.healthtracker
       xcode: latest
       cocoapods: default
     scripts:
