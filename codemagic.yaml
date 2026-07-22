@@ -38,30 +38,23 @@ workflows:
       - name: Set up keychain
         script: keychain initialize
 
-      - name: Create distribution certificate
+      - name: Generate private key for certificate
+        script: |
+          ssh-keygen -t rsa -b 2048 -m PEM -f /tmp/dist_key -q -N ""
+          echo "Chiave privata generata in /tmp/dist_key"
+
+      - name: Create distribution certificate with our key
         script: |
           app-store-connect certificates create \
             --type IOS_DISTRIBUTION \
-            --save || echo "Certificato gia' esistente, procedo"
-
-      - name: Fetch or create certificates
-        script: |
-          app-store-connect certificates list \
-            --type IOS_DISTRIBUTION \
-            --certificate-key=@file:$CM_BUILD_DIR/private_key \
-            --save || true
-
-      - name: Create provisioning profile
-        script: |
-          app-store-connect profiles create \
-            --type IOS_APP_STORE \
-            --bundle-id-identifier "com.ikim.healthtracker" \
-            --save || echo "Profilo gia' esistente, procedo"
+            --certificate-key=@file:/tmp/dist_key \
+            --save
 
       - name: Fetch signing files
         script: |
-          app-store-connect fetch-signing-files "com.ikim.healthtracker" \
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
+            --certificate-key=@file:/tmp/dist_key \
             --create
 
       - name: Add certificates to keychain
