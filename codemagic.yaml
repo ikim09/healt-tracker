@@ -1,6 +1,4 @@
 
-
-
 workflows:
   ios-release:
     name: HealthTracker iOS Release
@@ -8,14 +6,11 @@ workflows:
     integrations:
       app_store_connect: Codemagic Admin
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.ikim.healthtracker
       node: 22.12.0
       xcode: latest
       cocoapods: default
       vars:
-        APP_ID: com.ikim.healthtracker
+        BUNDLE_ID: com.ikim.healthtracker
     scripts:
       - name: Install dependencies
         script: npm install
@@ -40,9 +35,40 @@ workflows:
         script: |
           find ios -name "Podfile" -execdir pod install \;
 
-      - name: Set up code signing
+      - name: Set up keychain
+        script: keychain initialize
+
+      - name: Create distribution certificate
         script: |
-          xcode-project use-profiles
+          app-store-connect certificates create \
+            --type IOS_DISTRIBUTION \
+            --save || echo "Certificato gia' esistente, procedo"
+
+      - name: Fetch or create certificates
+        script: |
+          app-store-connect certificates list \
+            --type IOS_DISTRIBUTION \
+            --certificate-key=@file:$CM_BUILD_DIR/private_key \
+            --save || true
+
+      - name: Create provisioning profile
+        script: |
+          app-store-connect profiles create \
+            --type IOS_APP_STORE \
+            --bundle-id-identifier "com.ikim.healthtracker" \
+            --save || echo "Profilo gia' esistente, procedo"
+
+      - name: Fetch signing files
+        script: |
+          app-store-connect fetch-signing-files "com.ikim.healthtracker" \
+            --type IOS_APP_STORE \
+            --create
+
+      - name: Add certificates to keychain
+        script: keychain add-certificates
+
+      - name: Apply profiles
+        script: xcode-project use-profiles
 
       - name: Set build number
         script: |
@@ -65,4 +91,3 @@ workflows:
         auth: integration
         submit_to_testflight: true
         submit_to_app_store: false
-
