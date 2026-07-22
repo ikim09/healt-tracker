@@ -1,4 +1,3 @@
-
 workflows:
   ios-release:
     name: HealthTracker iOS Release
@@ -6,6 +5,9 @@ workflows:
     integrations:
       app_store_connect: Codemagic Admin
     environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.ikim.healthtracker
       node: 22.12.0
       xcode: latest
       cocoapods: default
@@ -33,16 +35,11 @@ workflows:
 
       - name: Set iPhone only and clean entitlements
         script: |
-          # Solo iPhone
           sed -i '' 's/TARGETED_DEVICE_FAMILY = "1,2"/TARGETED_DEVICE_FAMILY = 1/g' ios/App/App.xcodeproj/project.pbxproj
           echo "App impostata come solo iPhone"
-
-          # Trova tutti i file entitlements e mostra il contenuto ORIGINALE
           echo "===== FILE ENTITLEMENTS TROVATI ====="
           find ios -name "*.entitlements"
           echo "====================================="
-
-          # Sovrascrivi ogni entitlements con uno pulito (vuoto)
           for f in $(find ios -name "*.entitlements"); do
             echo "Sovrascrivo con entitlements pulito: $f"
             cat > "$f" << 'EOF'
@@ -53,41 +50,14 @@ workflows:
           </dict>
           </plist>
           EOF
-            echo "--- Nuovo contenuto di $f ---"
             cat "$f"
-            echo "-----------------------------"
           done
 
       - name: CocoaPods
         script: |
           find ios -name "Podfile" -execdir pod install \;
 
-      - name: Set up keychain
-        script: keychain initialize
-
-      - name: Generate private key for certificate
-        script: |
-          ssh-keygen -t rsa -b 2048 -m PEM -f /tmp/dist_key -q -N ""
-          echo "Chiave privata generata in /tmp/dist_key"
-
-      - name: Create or reuse distribution certificate
-        script: |
-          app-store-connect certificates create \
-            --type IOS_DISTRIBUTION \
-            --certificate-key=@file:/tmp/dist_key \
-            --save || echo "Certificato gia' esistente, uso quello disponibile"
-
-      - name: Fetch signing files
-        script: |
-          app-store-connect fetch-signing-files "$BUNDLE_ID" \
-            --type IOS_APP_STORE \
-            --certificate-key=@file:/tmp/dist_key \
-            --create
-
-      - name: Add certificates to keychain
-        script: keychain add-certificates
-
-      - name: Apply profiles
+      - name: Set up code signing
         script: xcode-project use-profiles
 
       - name: Set build number
@@ -111,3 +81,5 @@ workflows:
         auth: integration
         submit_to_testflight: true
         submit_to_app_store: false
+
+
