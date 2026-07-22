@@ -31,18 +31,31 @@ workflows:
       - name: Sync
         script: npx cap sync ios
 
-      - name: Set iPhone only and remove Game Center
+      - name: Set iPhone only and clean entitlements
         script: |
           # Solo iPhone
           sed -i '' 's/TARGETED_DEVICE_FAMILY = "1,2"/TARGETED_DEVICE_FAMILY = 1/g' ios/App/App.xcodeproj/project.pbxproj
           echo "App impostata come solo iPhone"
-          # Rimuovi Game Center da tutti i file entitlements
+
+          # Trova tutti i file entitlements e mostra il contenuto ORIGINALE
+          echo "===== FILE ENTITLEMENTS TROVATI ====="
+          find ios -name "*.entitlements"
+          echo "====================================="
+
+          # Sovrascrivi ogni entitlements con uno pulito (vuoto)
           for f in $(find ios -name "*.entitlements"); do
-            echo "Pulizia entitlements: $f"
-            /usr/libexec/PlistBuddy -c "Delete :com.apple.developer.game-center" "$f" 2>/dev/null || echo "  Game Center non presente"
-            echo "--- Contenuto di $f ---"
+            echo "Sovrascrivo con entitlements pulito: $f"
+            cat > "$f" << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+          </dict>
+          </plist>
+          EOF
+            echo "--- Nuovo contenuto di $f ---"
             cat "$f"
-            echo "-----------------------"
+            echo "-----------------------------"
           done
 
       - name: CocoaPods
