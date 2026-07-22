@@ -63,6 +63,105 @@ workflows:
       - name: Apply profiles
         script: xcode-project use-profiles
 
+      - name: Set iPhone only
+        script: |
+          cd ios/App
+          # Imposta TARGETED_DEVICE_FAMILY a 1 (solo iPhone)
+          sed -i '' 's/TARGETED_DEVICE_FAMILY = "1,2"/TARGETED_DEVICE_FAMILY = 1/g' App.xcodeproj/project.pbxproj
+          echo "App impostata come solo iPhone"
+
+      - name: Set build number
+        script: |
+          BUILD_NUMBER=$(date +%Y%m%d%H%M)
+          agvtool new-version -all $BUILD_NUMBER
+        working_directory: ios/App
+
+      - name: Build IPA
+        script: |
+          WORKSPACE=$(find ios -name "*.xcworkspace" -type d | head -1)
+          echo "Uso workspace: $WORKSPACE"
+          xcode-project build-ipa --workspace "$WORKSPACE" --scheme App
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        submit_to_app_store: false
+workflows:
+  ios-release:
+    name: HealthTracker iOS Release
+    max_build_duration: 60
+    integrations:
+      app_store_connect: Codemagic Admin
+    environment:
+      node: 22.12.0
+      xcode: latest
+      cocoapods: default
+      vars:
+        BUNDLE_ID: com.ikim.healthtracker
+    scripts:
+      - name: Install dependencies
+        script: npm install
+
+      - name: Build web app
+        script: npm run build
+
+      - name: Capacitor CLI
+        script: npm install -g @capacitor/cli
+
+      - name: Add iOS
+        script: |
+          npm install @capacitor/ios
+          if [ ! -d "ios" ]; then
+            npx cap add ios
+          fi
+
+      - name: Sync
+        script: npx cap sync ios
+
+      - name: CocoaPods
+        script: |
+          find ios -name "Podfile" -execdir pod install \;
+
+      - name: Set up keychain
+        script: keychain initialize
+
+      - name: Generate private key for certificate
+        script: |
+          ssh-keygen -t rsa -b 2048 -m PEM -f /tmp/dist_key -q -N ""
+          echo "Chiave privata generata in /tmp/dist_key"
+
+      - name: Create distribution certificate with our key
+        script: |
+          app-store-connect certificates create \
+            --type IOS_DISTRIBUTION \
+            --certificate-key=@file:/tmp/dist_key \
+            --save
+
+      - name: Fetch signing files
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --certificate-key=@file:/tmp/dist_key \
+            --create
+
+      - name: Add certificates to keychain
+        script: keychain add-certificates
+
+      - name: Apply profiles
+        script: xcode-project use-profiles
+
+      - name: Set iPhone only
+        script: |
+          cd ios/App
+          # Imposta TARGETED_DEVICE_FAMILY a 1 (solo iPhone)
+          sed -i '' 's/TARGETED_DEVICE_FAMILY = "1,2"/TARGETED_DEVICE_FAMILY = 1/g' App.xcodeproj/project.pbxproj
+          echo "App impostata come solo iPhone"
+
       - name: Set build number
         script: |
           BUILD_NUMBER=$(date +%Y%m%d%H%M)
