@@ -33,11 +33,20 @@ workflows:
 
       - name: Set iPhone only and clean entitlements
         script: |
-          sed -i '' 's/TARGETED_DEVICE_FAMILY = "1,2"/TARGETED_DEVICE_FAMILY = 1/g' ios/App/App.xcodeproj/project.pbxproj
+          PBXPROJ="ios/App/App.xcodeproj/project.pbxproj"
+
+          # Solo iPhone
+          sed -i '' 's/TARGETED_DEVICE_FAMILY = "1,2"/TARGETED_DEVICE_FAMILY = 1/g' "$PBXPROJ"
           echo "App impostata come solo iPhone"
-          echo "===== FILE ENTITLEMENTS TROVATI ====="
+
+          # Rimuovi ogni riferimento a Game Center dal progetto Xcode
+          sed -i '' '/com.apple.developer.game-center/d' "$PBXPROJ"
+          sed -i '' '/GameKit/d' "$PBXPROJ"
+          echo "Riferimenti Game Center rimossi dal progetto"
+
+          # Pulisci anche i file entitlements
+          echo "===== FILE ENTITLEMENTS ====="
           find ios -name "*.entitlements"
-          echo "====================================="
           for f in $(find ios -name "*.entitlements"); do
             echo "Sovrascrivo con entitlements pulito: $f"
             cat > "$f" << 'EOF'
