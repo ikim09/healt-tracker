@@ -31,6 +31,11 @@ workflows:
       - name: Sync
         script: npx cap sync ios
 
+      - name: Generate app icons
+        script: |
+          npm install -D @capacitor/assets
+          npx capacitor-assets generate --ios
+          
       - name: Set iPhone only and clean entitlements
         script: |
           PBXPROJ="ios/App/App.xcodeproj/project.pbxproj"
