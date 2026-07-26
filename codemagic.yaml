@@ -31,11 +31,6 @@ workflows:
       - name: Sync
         script: npx cap sync ios
 
-      - name: Generate app icons
-        script: |
-          npm install -D @capacitor/assets
-          npx capacitor-assets generate --ios
-
       - name: Set iPhone only and clean entitlements
         script: |
           PBXPROJ="ios/App/App.xcodeproj/project.pbxproj"
@@ -82,7 +77,7 @@ workflows:
           app-store-connect certificates create \
             --type IOS_DISTRIBUTION \
             --certificate-key=@file:/tmp/dist_key \
-            --save || echo "Certificato gia' esistente, proseguo"
+            --save
 
       - name: Fetch signing files
         script: |
