@@ -59,7 +59,7 @@ const Txt = ({lbl,...p}) => (
 function Modal({title,onClose,onSave,saveLabel="Salva",saveBg="linear-gradient(135deg,#1e40af,#3b82f6)",children}) {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center" style={{background:'rgba(0,0,0,0.55)'}}>
-      <div className="bg-white rounded-t-3xl shadow-2xl w-full max-w-lg" style={{maxHeight:'92vh',display:'flex',flexDirection:'column'}}>
+      <div className="bg-white rounded-t-3xl shadow-2xl w-full max-w-lg" style={{maxHeight:'92vh',display:'flex',flexDirection:'column',paddingBottom:'env(safe-area-inset-bottom)'}}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h3 className="font-bold text-gray-800">{title}</h3>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 font-bold text-lg">×</button>
@@ -121,7 +121,7 @@ function AttachmentViewer({file, onClose}) {
   const isImg = file.type.startsWith('image/');
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center" style={{background:'rgba(0,0,0,0.7)'}}>
-      <div className="bg-white rounded-t-3xl shadow-2xl w-full max-w-lg" style={{maxHeight:'90vh',display:'flex',flexDirection:'column'}}>
+      <div className="bg-white rounded-t-3xl shadow-2xl w-full max-w-lg" style={{maxHeight:'90vh',display:'flex',flexDirection:'column',paddingBottom:'env(safe-area-inset-bottom)'}}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xl">{fileIcon(file.type)}</span>
@@ -576,7 +576,7 @@ export default function App() {
 
   return (
     <div className="flex flex-col min-h-screen" style={{background:'#f8faff',fontFamily:'-apple-system,BlinkMacSystemFont,sans-serif'}}>
-      <div className="px-5 py-4 flex items-center gap-3 flex-shrink-0" style={{background:'linear-gradient(135deg,#1e3a8a,#2563eb)'}}>
+      <div className="px-5 pb-4 flex items-center gap-3 flex-shrink-0" style={{background:'linear-gradient(135deg,#1e3a8a,#2563eb)',paddingTop:'calc(env(safe-area-inset-top) + 1rem)'}}>
         <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl" style={{background:'rgba(255,255,255,0.2)'}}>🏥</div>
         <div><h1 className="font-black text-white text-base leading-tight">HealthTracker</h1><p className="text-blue-200 text-xs">Il tuo diario della salute</p></div>
         <div className="ml-auto flex items-center gap-2">
@@ -588,7 +588,7 @@ export default function App() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto" style={{paddingBottom:'80px'}}>
+      <div className="flex-1 overflow-y-auto" style={{paddingBottom:'calc(80px + env(safe-area-inset-bottom))'}}>
         <div className="px-4 py-5 max-w-lg mx-auto">
           {tab==='home'    && <Dashboard visite={visite} analisi={analisi} vitali={vitali}/>}
           {tab==='visite'  && <Visite visite={visite} onAdd={()=>setModal('visita')} onDel={id=>del('ht-visite',setVisite,id)} onView={v=>setModal({t:'viewV',d:v})}/>}
@@ -597,7 +597,7 @@ export default function App() {
         </div>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 flex bg-white" style={{borderTop:'1px solid #f3f4f6',boxShadow:'0 -8px 24px rgba(0,0,0,0.06)'}}>
+      <div className="fixed bottom-0 left-0 right-0 flex bg-white" style={{borderTop:'1px solid #f3f4f6',boxShadow:'0 -8px 24px rgba(0,0,0,0.06)',paddingBottom:'env(safe-area-inset-bottom)'}}>
         {TABS.map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)} className="flex-1 flex flex-col items-center py-3 gap-0.5 transition-colors">
             <span className="text-xl leading-none">{t.i}</span>

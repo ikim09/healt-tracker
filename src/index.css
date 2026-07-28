@@ -1,3 +1,14 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* iOS: campi ≥16px per evitare l'auto-zoom del webview al focus */
+input, select, textarea {
+  font-size: 16px !important;
+}
+
+/* Niente rimbalzo/overscroll stile browser */
+html, body {
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+}
