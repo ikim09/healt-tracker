@@ -33,6 +33,7 @@ const SPORT = [
   {n:"Nuoto",i:"🏊"},{n:"Calcio",i:"⚽"},{n:"Tennis / Padel",i:"🎾"},{n:"Yoga / Stretching",i:"🧘"},{n:"Altro",i:"💪"},
 ];
 const sportIcon = t => SPORT.find(s=>s.n===t)?.i || "💪";
+const FREQ = ["1 volta al giorno","2 volte al giorno","3 volte al giorno","Ogni 8 ore","Ogni 12 ore","A giorni alterni","1 volta a settimana","Al bisogno"];
 
 const fmt = d => { if(!d) return '-'; const p=d.split('-'); return `${p[2]}/${p[1]}/${p[0]}`; };
 const isAbn = p => p.min!==undefined&&(p.v<p.min||(p.max!==null&&p.max!==undefined&&p.v>p.max));
@@ -503,6 +504,77 @@ function RicetteView({ricette, onAdd, onToggle, onDel}) {
   );
 }
 
+function TerapiaModal({onSave, onClose}) {
+  const oggi = new Date().toISOString().slice(0,10);
+  const [f, sf] = useState({inizio:oggi,fine:'',farmaco:'',dose:'',frequenza:FREQ[0],note:''});
+  const ok = f.inizio && f.farmaco.trim();
+  return (
+    <Modal title={t('new_therapy')} onClose={onClose} onSave={ok?()=>onSave({...f,data:f.inizio}):null}
+      saveLabel={ok?t('save_therapy'):t('need_therapy')} saveBg="linear-gradient(135deg,#0f766e,#14b8a6)">
+      <Inp lbl={t('drug_l')} placeholder={t('drug_ph')} value={f.farmaco} onChange={e=>sf(p=>({...p,farmaco:e.target.value}))}/>
+      <Inp lbl={t('dose_l')} placeholder={t('dose_ph')} value={f.dose} onChange={e=>sf(p=>({...p,dose:e.target.value}))}/>
+      <Sel lbl={t('freq_l')} opts={FREQ} value={f.frequenza} onChange={e=>sf(p=>({...p,frequenza:e.target.value}))}/>
+      <div className="grid grid-cols-2 gap-3">
+        <Inp lbl={t('start_l')} type="date" value={f.inizio} onChange={e=>sf(p=>({...p,inizio:e.target.value}))}/>
+        <Inp lbl={t('end_l')} type="date" value={f.fine} onChange={e=>sf(p=>({...p,fine:e.target.value}))}/>
+      </div>
+      <p className="text-xs text-gray-300 -mt-1 mb-3">{t('end_hint')}</p>
+      <Txt lbl={t('notes_l')} placeholder={t('therapy_notes_ph')} value={f.note} onChange={e=>sf(p=>({...p,note:e.target.value}))}/>
+    </Modal>
+  );
+}
+
+function TerapiaCard({x, onDel, conclusa}) {
+  return (
+    <div className={`bg-white rounded-2xl p-4 shadow-sm border border-gray-50 flex items-start gap-3 ${conclusa?'opacity-70':''}`}
+      style={{borderLeft:`3px solid ${conclusa?'#d1d5db':'#14b8a6'}`}}>
+      <span className="text-2xl">💊</span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className={`font-bold ${conclusa?'text-gray-400':'text-gray-800'}`}>{x.farmaco}</p>
+          {x.dose&&<span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{background:'#f0fdfa',color:'#0f766e'}}>{x.dose}</span>}
+        </div>
+        <p className="text-xs text-gray-500 mt-0.5">{tv(x.frequenza)}</p>
+        <p className="text-xs text-gray-400 mt-0.5">{fmt(x.inizio)}{x.fine?` → ${fmt(x.fine)}`:` → ${t('ongoing')}`}</p>
+        {x.note&&<p className="text-sm text-gray-500 mt-1">{x.note}</p>}
+      </div>
+      <button onClick={()=>onDel(x.id)} className="text-gray-200 hover:text-red-400 transition-colors text-xl flex-shrink-0">🗑</button>
+    </div>
+  );
+}
+
+function TerapieView({terapie, onAdd, onDel}) {
+  const oggi = new Date().toISOString().slice(0,10);
+  const inCorso = terapie.filter(x=>!x.fine||x.fine>=oggi);
+  const concluse = terapie.filter(x=>x.fine&&x.fine<oggi);
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <div><h2 className="text-lg font-black text-gray-800">{t('therapies_title')}</h2><p className="text-xs text-gray-400">{t('therapies_count',inCorso.length)}</p></div>
+        <button onClick={onAdd} className="text-white text-sm font-bold px-4 py-2.5 rounded-2xl shadow-md hover:opacity-90" style={{background:'linear-gradient(135deg,#0f766e,#14b8a6)'}}>{t('new_f')}</button>
+      </div>
+      {terapie.length===0?(
+        <div className="text-center py-16"><p className="text-5xl mb-3">💊</p><p className="text-gray-400 px-8">{t('no_therapies')}</p></div>
+      ):(
+        <div>
+          {inCorso.length>0&&(
+            <div className="mb-6">
+              <p className="text-xs font-black uppercase tracking-wider mb-2" style={{color:'#0f766e'}}>{t('ongoing_s',inCorso.length)}</p>
+              <div className="space-y-3">{inCorso.map(x=><TerapiaCard key={x.id} x={x} onDel={onDel}/>)}</div>
+            </div>
+          )}
+          {concluse.length>0&&(
+            <div>
+              <p className="text-xs font-black text-gray-400 uppercase tracking-wider mb-2">{t('finished_s',concluse.length)}</p>
+              <div className="space-y-3">{concluse.map(x=><TerapiaCard key={x.id} x={x} onDel={onDel} conclusa/>)}</div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NotaModal({onSave, onClose}) {
   const oggi = new Date().toISOString().slice(0,10);
   const [f, sf] = useState({data:oggi,titolo:'',testo:''});
@@ -625,9 +697,78 @@ function ViewAnalisiModal({a, onClose}) {
   );
 }
 
-function SettingsModal({lang, onLang, onExport, onClose}) {
+function SearchModal({dati, onGo, onClose}) {
+  const [q, setQ] = useState('');
+  const query = q.trim().toLowerCase();
+  const has = (...campi) => campi.some(c=>String(c||'').toLowerCase().includes(query));
+
+  const risultati = query.length<2 ? [] : [
+    ...dati.visite.filter(v=>has(v.medico,v.spec,tv(v.spec),v.diagnosi,v.note))
+      .map(v=>({id:'v'+v.id,tab:'visite',i:'👨‍⚕️',tit:`Dr. ${v.medico}`,sub:v.diagnosi||tv(v.spec),data:v.data})),
+    ...dati.analisi.filter(a=>has(a.note,...(a.params||[]).flatMap(p=>[p.n,tv(p.n)])))
+      .map(a=>({id:'a'+a.id,tab:'analisi',i:'🩸',tit:t('test_of',fmt(a.data)),sub:t('params_n',(a.params||[]).length),data:a.data})),
+    ...dati.note.filter(n=>has(n.titolo,n.testo))
+      .map(n=>({id:'n'+n.id,tab:'note',i:'📝',tit:n.titolo,sub:n.testo,data:n.data})),
+    ...dati.ricette.filter(r=>has(r.descrizione,r.note))
+      .map(r=>({id:'r'+r.id,tab:'ricette',i:'📋',tit:r.descrizione,sub:r.note,data:r.data})),
+    ...dati.terapie.filter(x=>has(x.farmaco,x.dose,x.note))
+      .map(x=>({id:'t'+x.id,tab:'terapie',i:'💊',tit:x.farmaco,sub:x.dose,data:x.inizio})),
+    ...dati.allenamenti.filter(a=>has(a.tipo,tv(a.tipo),a.note))
+      .map(a=>({id:'s'+a.id,tab:'sport',i:'💪',tit:tv(a.tipo),sub:`${a.durata} min`,data:a.data})),
+  ].sort((x,y)=>String(y.data).localeCompare(String(x.data)));
+
+  return (
+    <Modal title={t('search_title')} onClose={onClose}>
+      <input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder={t('search_ph')}
+        className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:bg-white mb-4"/>
+      {query.length<2 ? (
+        <p className="text-xs text-gray-300 text-center py-8">{t('search_hint')}</p>
+      ) : risultati.length===0 ? (
+        <div className="text-center py-10"><p className="text-4xl mb-2">🔍</p><p className="text-gray-400 text-sm">{t('search_none')}</p></div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-xs text-gray-400 mb-2">{t('search_count',risultati.length)}</p>
+          {risultati.slice(0,50).map(r=>(
+            <button key={r.id} onClick={()=>onGo(r.tab)} className="w-full flex items-center gap-3 bg-gray-50 hover:bg-gray-100 rounded-xl px-3 py-3 text-left transition-colors">
+              <span className="text-xl flex-shrink-0">{r.i}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-bold text-gray-800 truncate">{r.tit}</span>
+                {r.sub&&<span className="block text-xs text-gray-400 truncate">{r.sub}</span>}
+              </span>
+              <span className="text-xs text-gray-300 flex-shrink-0">{fmt(r.data)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function AltroModal({onGo, onClose}) {
+  const voci = [
+    {id:'sport',i:'💪',c:'#f0fdf4'},
+    {id:'ricette',i:'📋',c:'#ecfeff'},
+    {id:'note',i:'📝',c:'#fffbeb'},
+    {id:'terapie',i:'💊',c:'#f0fdfa'},
+  ];
+  return (
+    <Modal title={t('more_title')} onClose={onClose}>
+      <div className="grid grid-cols-2 gap-3">
+        {voci.map(v=>(
+          <button key={v.id} onClick={()=>onGo(v.id)} className="rounded-2xl p-5 text-center active:scale-95 transition-transform" style={{background:v.c}}>
+            <p className="text-3xl mb-2">{v.i}</p>
+            <p className="text-sm font-bold text-gray-700">{tTab(v.id)}</p>
+          </button>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+function SettingsModal({lang, onLang, promemoria, onPromemoria, onExport, onClose}) {
   const [info, setInfo] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
+  const [msg, setMsg] = useState(null);
   const curLang = LANGS.find(l=>l.code===lang) || LANGS[0];
   const Row = ({icon,label,desc,onClick,open}) => (
     <button onClick={onClick} className="w-full flex items-center gap-3 bg-gray-50 rounded-2xl p-4 mb-2 text-left active:bg-gray-100 hover:bg-gray-100 transition-colors">
@@ -641,6 +782,19 @@ function SettingsModal({lang, onLang, onExport, onClose}) {
   );
   return (
     <Modal title={t('set_title')} onClose={onClose}>
+      <div className="w-full flex items-center gap-3 bg-gray-50 rounded-2xl p-4 mb-2">
+        <span className="text-2xl">🔔</span>
+        <span className="flex-1 min-w-0">
+          <span className="block font-bold text-gray-800 text-sm">{t('set_notif')}</span>
+          <span className="block text-xs text-gray-400">{t('set_notif_d')}</span>
+        </span>
+        <button onClick={async()=>{ const r=await onPromemoria(!promemoria); setMsg(r); }}
+          className="w-12 h-7 rounded-full flex-shrink-0 transition-colors relative"
+          style={{background:promemoria?'#1e40af':'#d1d5db'}}>
+          <span className="absolute top-1 w-5 h-5 bg-white rounded-full shadow transition-all" style={{left:promemoria?'26px':'4px'}}/>
+        </button>
+      </div>
+      {msg&&<p className="text-xs text-gray-400 px-2 -mt-1 mb-2">{msg}</p>}
       <Row icon="📥" label={t('set_export')} desc={t('set_export_d')} onClick={onExport}/>
       <Row icon="🌐" label={t('set_lang')} desc={`${curLang.flag} ${curLang.label}`} onClick={()=>setLangOpen(v=>!v)} open={langOpen}/>
       {langOpen&&(
@@ -938,14 +1092,17 @@ export default function App() {
   const [allenamenti, setAllenamenti] = useState([]);
   const [ricette, setRicette] = useState([]);
   const [note, setNote] = useState([]);
+  const [terapie, setTerapie] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [lang, setLangState] = useState('it');
+  const [promemoria, setPromemoria] = useState(false);
 
   useEffect(()=>{
     (async()=>{
       try { const r=await window.storage.get('ht-lang'); if(r?.value){ setLang(r.value); setLangState(r.value); } } catch(e){}
-      for (const [k,fn] of [['ht-visite',setVisite],['ht-analisi',setAnalisi],['ht-allenamenti',setAllenamenti],['ht-ricette',setRicette],['ht-note',setNote]]) {
+      try { const r=await window.storage.get('ht-promemoria'); if(r?.value==='1') setPromemoria(true); } catch(e){}
+      for (const [k,fn] of [['ht-visite',setVisite],['ht-analisi',setAnalisi],['ht-allenamenti',setAllenamenti],['ht-ricette',setRicette],['ht-note',setNote],['ht-terapie',setTerapie]]) {
         try { const r=await window.storage.get(k); if(r) fn(JSON.parse(r.value)); } catch(e){}
       }
       try {
@@ -982,7 +1139,33 @@ export default function App() {
   const toggleRicetta = id => setRicette(prev=>{ const u=prev.map(r=>r.id===id?{...r,usata:!r.usata}:r); sv('ht-ricette',u); return u; });
   const toggleNota = id => setNote(prev=>{ const u=prev.map(n=>n.id===id?{...n,archiviata:!n.archiviata}:n); sv('ht-note',u); return u; });
 
-  const TABS = [{id:'home',i:'🏠'},{id:'visite',i:'👨‍⚕️'},{id:'analisi',i:'🩸'},{id:'vitali',i:'💓'},{id:'sport',i:'💪'},{id:'ricette',i:'📋'},{id:'note',i:'📝'}];
+  // Riprogramma i promemoria quando cambiano le visite o l'impostazione
+  useEffect(()=>{
+    if (loading || !promemoria) return;
+    (async()=>{
+      const { aggiornaPromemoria } = await import('./promemoria');
+      await aggiornaPromemoria(visite, true);
+    })();
+  },[visite, promemoria, loading]);
+
+  const cambiaPromemoria = async attiva => {
+    const { notificheDisponibili, chiediPermesso, aggiornaPromemoria } = await import('./promemoria');
+    if (!attiva) {
+      setPromemoria(false);
+      try { await window.storage.set('ht-promemoria','0'); } catch(e){}
+      await aggiornaPromemoria([], false);
+      return null;
+    }
+    if (!(await notificheDisponibili())) return t('notif_unavailable');
+    if (!(await chiediPermesso())) return t('notif_denied');
+    setPromemoria(true);
+    try { await window.storage.set('ht-promemoria','1'); } catch(e){}
+    const r = await aggiornaPromemoria(visite, true);
+    return r.n>0 ? t('notif_set',r.n) : t('notif_none');
+  };
+
+  const TABS = [{id:'home',i:'🏠'},{id:'visite',i:'👨‍⚕️'},{id:'analisi',i:'🩸'},{id:'vitali',i:'💓'},{id:'altro',i:'⋯'}];
+  const SEZ_ALTRO = ['sport','ricette','note','terapie'];
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-screen" style={{background:'#f8faff'}}>
@@ -996,6 +1179,8 @@ export default function App() {
         <button onClick={()=>setModal('settings')} title={t('settings')} className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl active:opacity-60 transition-opacity" style={{background:'rgba(255,255,255,0.2)'}}>🏥</button>
         <div><h1 className="font-black text-white text-base leading-tight">HealthTracker</h1><p className="text-blue-200 text-xs">{t('tagline')}</p></div>
         <div className="ml-auto flex items-center gap-2">
+          <button onClick={()=>setModal('search')} title={t('search_title')}
+            className="w-9 h-9 rounded-xl flex items-center justify-center text-lg hover:opacity-80 transition-opacity" style={{background:'rgba(255,255,255,0.15)'}}>🔍</button>
           <button onClick={()=>setModal('export')} title={t('export_short')}
             className="w-9 h-9 rounded-xl flex items-center justify-center text-lg hover:opacity-80 transition-opacity" style={{background:'rgba(255,255,255,0.15)'}}>📥</button>
           <div className="px-3 py-1.5 rounded-full" style={{background:'rgba(255,255,255,0.15)'}}>
@@ -1013,17 +1198,21 @@ export default function App() {
           {tab==='sport'   && <AllenamentiView allenamenti={allenamenti} onAdd={()=>setModal('allenamento')} onDel={id=>del('ht-allenamenti',setAllenamenti,id)}/>}
           {tab==='ricette' && <RicetteView ricette={ricette} onAdd={()=>setModal('ricetta')} onToggle={toggleRicetta} onDel={id=>del('ht-ricette',setRicette,id)}/>}
           {tab==='note'    && <NoteView note={note} onAdd={()=>setModal('nota')} onArch={toggleNota} onDel={id=>del('ht-note',setNote,id)} onView={n=>setModal({t:'viewN',d:n})}/>}
+          {tab==='terapie' && <TerapieView terapie={terapie} onAdd={()=>setModal('terapia')} onDel={id=>del('ht-terapie',setTerapie,id)}/>}
         </div>
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 flex bg-white" style={{borderTop:'1px solid #f3f4f6',boxShadow:'0 -8px 24px rgba(0,0,0,0.06)',paddingBottom:'env(safe-area-inset-bottom)'}}>
-        {TABS.map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)} className="flex-1 min-w-0 flex flex-col items-center py-3 gap-0.5 transition-colors">
-            <span className="text-lg leading-none">{t.i}</span>
-            <span className="font-bold truncate max-w-full px-0.5" style={{fontSize:'10px',color:tab===t.id?'#1e40af':'#9ca3af'}}>{tTab(t.id)}</span>
-            {tab===t.id&&<div className="w-1.5 h-1.5 rounded-full mt-0.5" style={{background:'#1e40af'}}/>}
-          </button>
-        ))}
+        {TABS.map(x=>{
+          const attivo = x.id==='altro' ? SEZ_ALTRO.includes(tab) : tab===x.id;
+          return (
+            <button key={x.id} onClick={()=>x.id==='altro'?setModal('altro'):setTab(x.id)} className="flex-1 min-w-0 flex flex-col items-center py-3 gap-0.5 transition-colors">
+              <span className="text-xl leading-none">{x.i}</span>
+              <span className="font-bold truncate max-w-full px-0.5" style={{fontSize:'11px',color:attivo?'#1e40af':'#9ca3af'}}>{x.id==='altro'&&SEZ_ALTRO.includes(tab)?tTab(tab):tTab(x.id)}</span>
+              {attivo&&<div className="w-1.5 h-1.5 rounded-full mt-0.5" style={{background:'#1e40af'}}/>}
+            </button>
+          );
+        })}
       </div>
 
       {modal==='visita'   && <VisitaModal  onSave={d=>add('ht-visite',setVisite,d)}  onClose={()=>setModal(null)}/>}
@@ -1032,11 +1221,14 @@ export default function App() {
       {modal==='allenamento' && <AllenamentoModal onSave={d=>add('ht-allenamenti',setAllenamenti,d)} onClose={()=>setModal(null)}/>}
       {modal==='ricetta'  && <RicettaModal onSave={d=>add('ht-ricette',setRicette,d)} onClose={()=>setModal(null)}/>}
       {modal==='nota'     && <NotaModal onSave={d=>add('ht-note',setNote,d)} onClose={()=>setModal(null)}/>}
+      {modal==='terapia'  && <TerapiaModal onSave={d=>add('ht-terapie',setTerapie,d)} onClose={()=>setModal(null)}/>}
+      {modal==='altro'    && <AltroModal onGo={id=>{setTab(id);setModal(null);}} onClose={()=>setModal(null)}/>}
+      {modal==='search'   && <SearchModal dati={{visite,analisi,note,ricette,terapie,allenamenti}} onGo={id=>{setTab(id);setModal(null);}} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewN' && <ViewNotaModal n={modal.d} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewV' && <ViewVisitaModal v={modal.d} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewA' && <ViewAnalisiModal a={modal.d} onClose={()=>setModal(null)}/>}
       {modal==='export'   && <ExportModal visite={visite} analisi={analisi} vitali={vitali} onClose={()=>setModal(null)}/>}
-      {modal==='settings' && <SettingsModal lang={lang} onLang={changeLang} onExport={()=>setModal('export')} onClose={()=>setModal(null)}/>}
+      {modal==='settings' && <SettingsModal lang={lang} onLang={changeLang} promemoria={promemoria} onPromemoria={cambiaPromemoria} onExport={()=>setModal('export')} onClose={()=>setModal(null)}/>}
     </div>
   );
 }
