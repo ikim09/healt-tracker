@@ -329,6 +329,75 @@ function AllenamentiView({allenamenti, onAdd, onDel}) {
   );
 }
 
+function RicettaModal({onSave, onClose}) {
+  const [f, sf] = useState({data:'',descrizione:'',note:'',usata:false,allegati:[]});
+  const ok = f.data && f.descrizione.trim();
+  return (
+    <Modal title="📋 Nuova Ricetta Medica" onClose={onClose} onSave={ok?()=>onSave(f):null}
+      saveLabel={ok?"Salva Ricetta":"Inserisci data e descrizione"} saveBg="linear-gradient(135deg,#0e7490,#06b6d4)">
+      <Inp lbl="Data *" type="date" value={f.data} onChange={e=>sf(p=>({...p,data:e.target.value}))}/>
+      <Inp lbl="Descrizione *" placeholder="Es. Esami del sangue – Dr. Rossi" value={f.descrizione} onChange={e=>sf(p=>({...p,descrizione:e.target.value}))}/>
+      <Txt lbl="Note" placeholder="Scadenza, farmacia, promemoria..." value={f.note} onChange={e=>sf(p=>({...p,note:e.target.value}))}/>
+      <AttachmentPicker files={f.allegati} onChange={v=>sf(p=>({...p,allegati:v}))}/>
+    </Modal>
+  );
+}
+
+function RicettaCard({r, onToggle, onDel}) {
+  return (
+    <div className={`bg-white rounded-2xl p-4 shadow-sm border border-gray-50 ${r.usata?'opacity-70':''}`}>
+      <div className="flex items-start justify-between">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <span className="text-xs text-gray-400">{fmt(r.data)}</span>
+            {r.usata&&<span className="text-xs font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-400">✓ Usata</span>}
+          </div>
+          <p className={`font-bold ${r.usata?'text-gray-400 line-through':'text-gray-800'}`}>{r.descrizione}</p>
+          {r.note&&<p className="text-sm text-gray-500 mt-0.5">{r.note}</p>}
+          <InlineAttachments allegati={r.allegati} recordId={r.id}/>
+        </div>
+        <div className="flex flex-col items-center gap-2 ml-3 flex-shrink-0">
+          <button onClick={()=>onToggle(r.id)} title={r.usata?"Riporta tra quelle da usare":"Segna come usata"}
+            className="w-9 h-9 rounded-xl flex items-center justify-center text-base active:scale-95 transition-transform"
+            style={{background:r.usata?'#f3f4f6':'#f0fdfa'}}>{r.usata?'↩️':'✔️'}</button>
+          <button onClick={()=>onDel(r.id)} className="text-gray-200 hover:text-red-400 transition-colors text-xl">🗑</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RicetteView({ricette, onAdd, onToggle, onDel}) {
+  const daUsare = ricette.filter(r=>!r.usata);
+  const usate = ricette.filter(r=>r.usata);
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <div><h2 className="text-lg font-black text-gray-800">Ricette Mediche</h2><p className="text-xs text-gray-400">{ricette.length} registrat{ricette.length===1?'a':'e'}</p></div>
+        <button onClick={onAdd} className="text-white text-sm font-bold px-4 py-2.5 rounded-2xl shadow-md hover:opacity-90" style={{background:'linear-gradient(135deg,#0e7490,#06b6d4)'}}>+ Nuova</button>
+      </div>
+      {ricette.length===0?(
+        <div className="text-center py-16"><p className="text-5xl mb-3">📋</p><p className="text-gray-400 px-8">Nessuna ricetta caricata. Aggiungi una foto della ricetta e avrai sempre tutto a portata di mano.</p></div>
+      ):(
+        <div>
+          {daUsare.length>0&&(
+            <div className="mb-6">
+              <p className="text-xs font-black uppercase tracking-wider mb-2" style={{color:'#0e7490'}}>📋 Da utilizzare ({daUsare.length})</p>
+              <div className="space-y-3">{daUsare.map(r=><RicettaCard key={r.id} r={r} onToggle={onToggle} onDel={onDel}/>)}</div>
+            </div>
+          )}
+          {usate.length>0&&(
+            <div>
+              <p className="text-xs font-black text-gray-400 uppercase tracking-wider mb-2">✅ Già utilizzate ({usate.length})</p>
+              <div className="space-y-3">{usate.map(r=><RicettaCard key={r.id} r={r} onToggle={onToggle} onDel={onDel}/>)}</div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ViewVisitaModal({v, onClose}) {
   return (
     <Modal title={`🏥 Visita del ${fmt(v.data)}`} onClose={onClose}>
@@ -659,12 +728,13 @@ export default function App() {
   const [analisi, setAnalisi] = useState([]);
   const [vitali, setVitali] = useState([]);
   const [allenamenti, setAllenamenti] = useState([]);
+  const [ricette, setRicette] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
 
   useEffect(()=>{
     (async()=>{
-      for (const [k,fn] of [['ht-visite',setVisite],['ht-analisi',setAnalisi],['ht-vitali',setVitali],['ht-allenamenti',setAllenamenti]]) {
+      for (const [k,fn] of [['ht-visite',setVisite],['ht-analisi',setAnalisi],['ht-vitali',setVitali],['ht-allenamenti',setAllenamenti],['ht-ricette',setRicette]]) {
         try { const r=await window.storage.get(k); if(r) fn(JSON.parse(r.value)); } catch(e){}
       }
       setLoading(false);
@@ -689,7 +759,9 @@ export default function App() {
     setter(prev=>{ const u=prev.filter(x=>x.id!==id); sv(key,u); return u; });
   };
 
-  const TABS = [{id:'home',l:'Home',i:'🏠'},{id:'visite',l:'Visite',i:'👨‍⚕️'},{id:'analisi',l:'Analisi',i:'🩸'},{id:'vitali',l:'Vitali',i:'💓'},{id:'sport',l:'Sport',i:'💪'}];
+  const toggleRicetta = id => setRicette(prev=>{ const u=prev.map(r=>r.id===id?{...r,usata:!r.usata}:r); sv('ht-ricette',u); return u; });
+
+  const TABS = [{id:'home',l:'Home',i:'🏠'},{id:'visite',l:'Visite',i:'👨‍⚕️'},{id:'analisi',l:'Analisi',i:'🩸'},{id:'vitali',l:'Vitali',i:'💓'},{id:'sport',l:'Sport',i:'💪'},{id:'ricette',l:'Ricette',i:'📋'}];
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-screen" style={{background:'#f8faff'}}>
@@ -718,6 +790,7 @@ export default function App() {
           {tab==='analisi' && <AnalisiView analisi={analisi} onAdd={()=>setModal('analisi')} onDel={id=>del('ht-analisi',setAnalisi,id)} onView={a=>setModal({t:'viewA',d:a})}/>}
           {tab==='vitali'  && <VitaliView vitali={vitali} onAdd={()=>setModal('vitale')} onDel={id=>del('ht-vitali',setVitali,id)}/>}
           {tab==='sport'   && <AllenamentiView allenamenti={allenamenti} onAdd={()=>setModal('allenamento')} onDel={id=>del('ht-allenamenti',setAllenamenti,id)}/>}
+          {tab==='ricette' && <RicetteView ricette={ricette} onAdd={()=>setModal('ricetta')} onToggle={toggleRicetta} onDel={id=>del('ht-ricette',setRicette,id)}/>}
         </div>
       </div>
 
@@ -735,6 +808,7 @@ export default function App() {
       {modal==='analisi'  && <AnalisiModal onSave={d=>add('ht-analisi',setAnalisi,d)} onClose={()=>setModal(null)}/>}
       {modal==='vitale'   && <VitaleModal  onSave={d=>add('ht-vitali',setVitali,d)}  onClose={()=>setModal(null)}/>}
       {modal==='allenamento' && <AllenamentoModal onSave={d=>add('ht-allenamenti',setAllenamenti,d)} onClose={()=>setModal(null)}/>}
+      {modal==='ricetta'  && <RicettaModal onSave={d=>add('ht-ricette',setRicette,d)} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewV' && <ViewVisitaModal v={modal.d} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewA' && <ViewAnalisiModal a={modal.d} onClose={()=>setModal(null)}/>}
       {modal==='export'   && <ExportModal visite={visite} analisi={analisi} vitali={vitali} onClose={()=>setModal(null)}/>}
