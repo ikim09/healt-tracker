@@ -528,30 +528,55 @@ function ViewNotaModal({n, onClose}) {
   );
 }
 
-function NoteView({note, onAdd, onDel, onView}) {
+function NotaCard({n, onArch, onDel, onView}) {
+  return (
+    <div className={`bg-white rounded-2xl p-4 shadow-sm border border-gray-50 cursor-pointer hover:shadow-md transition-all ${n.archiviata?'opacity-70':''}`}
+      style={{borderLeft:`3px solid ${n.archiviata?'#d1d5db':'#f59e0b'}`}} onClick={()=>onView(n)}>
+      <div className="flex items-start justify-between">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-gray-400 mb-1">{fmt(n.data)}</p>
+          <p className={`font-bold ${n.archiviata?'text-gray-400':'text-gray-800'}`}>{n.titolo}</p>
+          {n.testo&&<p className="text-sm text-gray-500 mt-0.5 line-clamp-2">{n.testo}</p>}
+          <p className="text-xs text-gray-300 mt-1">{t('tap_details')}</p>
+        </div>
+        <div className="flex flex-col items-center gap-2 ml-3 flex-shrink-0">
+          <button onClick={e=>{e.stopPropagation();onArch(n.id)}} title={n.archiviata?t('unarchive'):t('archive')}
+            className="w-9 h-9 rounded-xl flex items-center justify-center text-base active:scale-95 transition-transform"
+            style={{background:n.archiviata?'#f3f4f6':'#fffbeb'}}>{n.archiviata?'↩️':'📦'}</button>
+          <button onClick={e=>{e.stopPropagation();onDel(n.id)}} className="text-gray-200 hover:text-red-400 transition-colors text-xl">🗑</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NoteView({note, onAdd, onArch, onDel, onView}) {
+  const [showArch, setShowArch] = useState(false);
+  const attive = note.filter(n=>!n.archiviata);
+  const archiviate = note.filter(n=>n.archiviata);
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
-        <div><h2 className="text-lg font-black text-gray-800">{t('notes_title')}</h2><p className="text-xs text-gray-400">{t('notes_count',note.length)}</p></div>
+        <div><h2 className="text-lg font-black text-gray-800">{t('notes_title')}</h2><p className="text-xs text-gray-400">{t('notes_count',attive.length)}</p></div>
         <button onClick={onAdd} className="text-white text-sm font-bold px-4 py-2.5 rounded-2xl shadow-md hover:opacity-90" style={{background:'linear-gradient(135deg,#b45309,#f59e0b)'}}>{t('new_f')}</button>
       </div>
       {note.length===0?(
         <div className="text-center py-16"><p className="text-5xl mb-3">📝</p><p className="text-gray-400 px-8">{t('no_notes')}</p></div>
       ):(
-        <div className="space-y-3">
-          {note.map(n=>(
-            <div key={n.id} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50 cursor-pointer hover:shadow-md transition-all" style={{borderLeft:'3px solid #f59e0b'}} onClick={()=>onView(n)}>
-              <div className="flex items-start justify-between">
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-gray-400 mb-1">{fmt(n.data)}</p>
-                  <p className="font-bold text-gray-800">{n.titolo}</p>
-                  {n.testo&&<p className="text-sm text-gray-500 mt-0.5 line-clamp-2">{n.testo}</p>}
-                  <p className="text-xs text-gray-300 mt-1">{t('tap_details')}</p>
-                </div>
-                <button onClick={e=>{e.stopPropagation();onDel(n.id)}} className="text-gray-200 hover:text-red-400 transition-colors text-xl ml-3 flex-shrink-0">🗑</button>
-              </div>
+        <div>
+          {attive.length>0
+            ? <div className="space-y-3">{attive.map(n=><NotaCard key={n.id} n={n} onArch={onArch} onDel={onDel} onView={onView}/>)}</div>
+            : <div className="text-center py-10"><p className="text-4xl mb-2">📝</p><p className="text-gray-400 text-sm">{t('no_active_notes')}</p></div>}
+
+          {archiviate.length>0&&(
+            <div className="mt-6">
+              <button onClick={()=>setShowArch(v=>!v)} className="w-full flex items-center gap-2 py-2 text-xs font-black text-gray-400 uppercase tracking-wider">
+                <span>{showArch?'▾':'›'}</span>
+                <span>{t('archived_s',archiviate.length)}</span>
+              </button>
+              {showArch&&<div className="space-y-3 mt-2">{archiviate.map(n=><NotaCard key={n.id} n={n} onArch={onArch} onDel={onDel} onView={onView}/>)}</div>}
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>
@@ -955,6 +980,7 @@ export default function App() {
   };
 
   const toggleRicetta = id => setRicette(prev=>{ const u=prev.map(r=>r.id===id?{...r,usata:!r.usata}:r); sv('ht-ricette',u); return u; });
+  const toggleNota = id => setNote(prev=>{ const u=prev.map(n=>n.id===id?{...n,archiviata:!n.archiviata}:n); sv('ht-note',u); return u; });
 
   const TABS = [{id:'home',i:'🏠'},{id:'visite',i:'👨‍⚕️'},{id:'analisi',i:'🩸'},{id:'vitali',i:'💓'},{id:'sport',i:'💪'},{id:'ricette',i:'📋'},{id:'note',i:'📝'}];
 
@@ -986,7 +1012,7 @@ export default function App() {
           {tab==='vitali'  && <VitaliView vitali={vitali} onAdd={()=>setModal('vitale')} onDel={id=>del('ht-vitali',setVitali,id)}/>}
           {tab==='sport'   && <AllenamentiView allenamenti={allenamenti} onAdd={()=>setModal('allenamento')} onDel={id=>del('ht-allenamenti',setAllenamenti,id)}/>}
           {tab==='ricette' && <RicetteView ricette={ricette} onAdd={()=>setModal('ricetta')} onToggle={toggleRicetta} onDel={id=>del('ht-ricette',setRicette,id)}/>}
-          {tab==='note'    && <NoteView note={note} onAdd={()=>setModal('nota')} onDel={id=>del('ht-note',setNote,id)} onView={n=>setModal({t:'viewN',d:n})}/>}
+          {tab==='note'    && <NoteView note={note} onAdd={()=>setModal('nota')} onArch={toggleNota} onDel={id=>del('ht-note',setNote,id)} onView={n=>setModal({t:'viewN',d:n})}/>}
         </div>
       </div>
 
