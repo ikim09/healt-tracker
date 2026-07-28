@@ -19,10 +19,27 @@ const PARAMS = [
   {n:"Vitamina D",u:"ng/mL",min:30,max:100},{n:"Vitamina B12",u:"pg/mL",min:200,max:900},
 ];
 const VITALI = [
-  {n:"Peso",u:"kg",c:"#3b82f6"},{n:"Pressione sistolica",u:"mmHg",c:"#ef4444"},
-  {n:"Pressione diastolica",u:"mmHg",c:"#f97316"},{n:"Frequenza cardiaca",u:"bpm",c:"#ec4899"},
+  {n:"Peso",u:"kg",c:"#3b82f6"},{n:"Pressione",u:"mmHg",c:"#ef4444"},
+  {n:"Frequenza cardiaca",u:"bpm",c:"#ec4899"},
   {n:"Temperatura",u:"°C",c:"#a855f7"},{n:"Saturazione O₂",u:"%",c:"#06b6d4"},
 ];
+
+// Migra i vecchi record separati sistolica/diastolica nel tipo unico "Pressione"
+const migraPressione = list => {
+  const out=[], byDate={};
+  let changed=false;
+  for (const v of list) {
+    if (v.tipo==='Pressione sistolica'||v.tipo==='Pressione diastolica') {
+      changed=true;
+      const k=v.data;
+      byDate[k]=byDate[k]||{id:v.id,data:v.data,tipo:'Pressione',massima:null,minima:null};
+      const n=parseFloat(v.valore);
+      if (v.tipo==='Pressione sistolica') byDate[k].massima=n; else byDate[k].minima=n;
+    } else out.push(v);
+  }
+  const merged=[...out,...Object.values(byDate)].sort((a,b)=>b.data.localeCompare(a.data));
+  return {list:merged, changed};
+};
 const SPORT = [
   {n:"Palestra",i:"🏋️"},{n:"Corsa",i:"🏃"},{n:"Camminata",i:"🚶"},{n:"Bici",i:"🚴"},
   {n:"Nuoto",i:"🏊"},{n:"Calcio",i:"⚽"},{n:"Tennis / Padel",i:"🎾"},{n:"Yoga / Stretching",i:"🧘"},{n:"Altro",i:"💪"},
@@ -261,15 +278,25 @@ function AnalisiModal({onSave, onClose}) {
 }
 
 function VitaleModal({onSave, onClose}) {
-  const [f, sf] = useState({data:'',tipo:VITALI[0].n,valore:''});
+  const [f, sf] = useState({data:'',tipo:VITALI[0].n,valore:'',massima:'',minima:''});
   const ti = VITALI.find(v=>v.n===f.tipo);
-  const num = parseFloat(String(f.valore).replace(',','.'));
-  const ok = f.data && f.valore && !isNaN(num);
+  const isP = f.tipo==='Pressione';
+  const pf = s => parseFloat(String(s).replace(',','.'));
+  const num = pf(f.valore), nMax = pf(f.massima), nMin = pf(f.minima);
+  const ok = f.data && (isP ? (f.massima && f.minima && !isNaN(nMax) && !isNaN(nMin)) : (f.valore && !isNaN(num)));
+  const doSave = () => onSave(isP ? {data:f.data,tipo:f.tipo,massima:nMax,minima:nMin} : {data:f.data,tipo:f.tipo,valore:num});
   return (
-    <Modal title={t('new_vital')} onClose={onClose} onSave={ok?()=>onSave({...f,valore:num}):null} saveLabel={t('save')} saveBg="linear-gradient(135deg,#7e22ce,#a855f7)">
+    <Modal title={t('new_vital')} onClose={onClose} onSave={ok?doSave:null} saveLabel={t('save')} saveBg="linear-gradient(135deg,#7e22ce,#a855f7)">
       <Inp lbl={t('date_l')} type="date" value={f.data} onChange={e=>sf(p=>({...p,data:e.target.value}))}/>
       <Sel lbl={t('type_l')} opts={VITALI.map(v=>v.n)} value={f.tipo} onChange={e=>sf(p=>({...p,tipo:e.target.value}))}/>
-      <Inp lbl={t('value_l',ti?.u)} type="text" inputMode="decimal" placeholder="0.0" value={f.valore} onChange={e=>sf(p=>({...p,valore:e.target.value}))}/>
+      {isP ? (
+        <div className="grid grid-cols-2 gap-3">
+          <Inp lbl={t('max_l')} type="text" inputMode="numeric" placeholder="120" value={f.massima} onChange={e=>sf(p=>({...p,massima:e.target.value}))}/>
+          <Inp lbl={t('min_l')} type="text" inputMode="numeric" placeholder="80" value={f.minima} onChange={e=>sf(p=>({...p,minima:e.target.value}))}/>
+        </div>
+      ) : (
+        <Inp lbl={t('value_l',ti?.u)} type="text" inputMode="decimal" placeholder="0.0" value={f.valore} onChange={e=>sf(p=>({...p,valore:e.target.value}))}/>
+      )}
     </Modal>
   );
 }
@@ -498,7 +525,7 @@ function ExportModal({visite,analisi,vitali,onClose}) {
   };
   const expVitali = () => {
     const h=[t('h_date'),t('h_type'),t('h_value'),t('h_unit')];
-    const r=vitali.map(v=>[fmt(v.data),tv(v.tipo),v.valore,VITALI.find(x=>x.n===v.tipo)?.u||'']);
+    const r=vitali.map(v=>[fmt(v.data),tv(v.tipo),v.tipo==='Pressione'?`${v.massima??''}/${v.minima??''}`:v.valore,VITALI.find(x=>x.n===v.tipo)?.u||'']);
     dlCSV('dati_vitali.csv',mkCSV(h,r));
   };
   const expAll = () => { expVisite(); setTimeout(expAnalisi,350); setTimeout(expVitali,700); };
@@ -714,8 +741,15 @@ function VitaliView({vitali, onAdd, onDel}) {
               <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f5"/>
               <XAxis dataKey="df" tick={{fontSize:10,fill:'#9ca3af'}}/>
               <YAxis tick={{fontSize:10,fill:'#9ca3af'}} width={45}/>
-              <Tooltip formatter={v=>[`${v} ${ti?.u}`,tv(sel)]} contentStyle={{fontSize:11,borderRadius:16,border:'none',boxShadow:'0 8px 24px rgba(0,0,0,0.12)'}}/>
-              <Line type="monotone" dataKey="val" stroke={ti?.c} strokeWidth={2.5} dot={{r:4,fill:ti?.c,strokeWidth:0}} activeDot={{r:6}}/>
+              <Tooltip formatter={(v,name)=>[`${v} ${ti?.u}`, sel==='Pressione'?(name==='massima'?t('max_s'):t('min_s')):tv(sel)]} contentStyle={{fontSize:11,borderRadius:16,border:'none',boxShadow:'0 8px 24px rgba(0,0,0,0.12)'}}/>
+              {sel==='Pressione' ? (
+                <>
+                  <Line type="monotone" dataKey="massima" stroke="#ef4444" strokeWidth={2.5} dot={{r:4,fill:'#ef4444',strokeWidth:0}} activeDot={{r:6}}/>
+                  <Line type="monotone" dataKey="minima" stroke="#f97316" strokeWidth={2.5} dot={{r:4,fill:'#f97316',strokeWidth:0}} activeDot={{r:6}}/>
+                </>
+              ) : (
+                <Line type="monotone" dataKey="val" stroke={ti?.c} strokeWidth={2.5} dot={{r:4,fill:ti?.c,strokeWidth:0}} activeDot={{r:6}}/>
+              )}
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -725,7 +759,7 @@ function VitaliView({vitali, onAdd, onDel}) {
           {[...dati].reverse().map(v=>(
             <div key={v.id} className="flex items-center bg-white rounded-xl px-4 py-3 shadow-sm border border-gray-50">
               <span className="text-xs text-gray-400 flex-1">{v.df}</span>
-              <span className="font-black text-gray-800">{v.valore}</span>
+              <span className="font-black text-gray-800">{sel==='Pressione'?`${v.massima??'-'}/${v.minima??'-'}`:v.valore}</span>
               <span className="text-xs text-gray-400 ml-1 mr-4">{ti?.u}</span>
               <button onClick={()=>onDel(v.id)} className="text-gray-200 hover:text-red-400 transition-colors">🗑</button>
             </div>
@@ -753,9 +787,13 @@ export default function App() {
   useEffect(()=>{
     (async()=>{
       try { const r=await window.storage.get('ht-lang'); if(r?.value){ setLang(r.value); setLangState(r.value); } } catch(e){}
-      for (const [k,fn] of [['ht-visite',setVisite],['ht-analisi',setAnalisi],['ht-vitali',setVitali],['ht-allenamenti',setAllenamenti],['ht-ricette',setRicette]]) {
+      for (const [k,fn] of [['ht-visite',setVisite],['ht-analisi',setAnalisi],['ht-allenamenti',setAllenamenti],['ht-ricette',setRicette]]) {
         try { const r=await window.storage.get(k); if(r) fn(JSON.parse(r.value)); } catch(e){}
       }
+      try {
+        const r=await window.storage.get('ht-vitali');
+        if(r){ const m=migraPressione(JSON.parse(r.value)); setVitali(m.list); if(m.changed) await window.storage.set('ht-vitali',JSON.stringify(m.list)); }
+      } catch(e){}
       setLoading(false);
     })();
   },[]);
