@@ -419,7 +419,31 @@ function Dashboard({visite, analisi, vitali}) {
   );
 }
 
+function VisitaCard({v, onDel, onView, futura}) {
+  return (
+    <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50 cursor-pointer hover:shadow-md transition-all" style={futura?{borderLeft:'3px solid #3b82f6'}:undefined} onClick={()=>onView(v)}>
+      <div className="flex items-start justify-between">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+            <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{background:'#eff6ff',color:'#1e40af'}}>{v.spec}</span>
+            <span className="text-xs text-gray-400">{fmt(v.data)}</span>
+            {v.allegati?.length>0&&<span className="text-xs text-blue-400 font-medium">📎 {v.allegati.length}</span>}
+          </div>
+          <p className="font-bold text-gray-800">Dr. {v.medico}</p>
+          {v.diagnosi&&<p className="text-sm text-gray-500 mt-0.5 truncate">{v.diagnosi}</p>}
+          <p className="text-xs text-gray-300 mt-1">Tocca per dettagli →</p>
+        </div>
+        <button onClick={e=>{e.stopPropagation();onDel(v.id)}} className="text-gray-200 hover:text-red-400 transition-colors text-xl ml-3 mt-0.5 flex-shrink-0">🗑</button>
+      </div>
+    </div>
+  );
+}
+
 function Visite({visite, onAdd, onDel, onView}) {
+  const d = new Date();
+  const oggi = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const daFare = visite.filter(v=>v.data>=oggi).slice().sort((a,b)=>a.data.localeCompare(b.data));
+  const fatte = visite.filter(v=>v.data<oggi);
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
@@ -429,24 +453,23 @@ function Visite({visite, onAdd, onDel, onView}) {
       {visite.length===0?(
         <div className="text-center py-16"><p className="text-5xl mb-3">👨‍⚕️</p><p className="text-gray-400">Nessuna visita registrata</p></div>
       ):(
-        <div className="space-y-3">
-          {visite.map(v=>(
-            <div key={v.id} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50 cursor-pointer hover:shadow-md transition-all" onClick={()=>onView(v)}>
-              <div className="flex items-start justify-between">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                    <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{background:'#eff6ff',color:'#1e40af'}}>{v.spec}</span>
-                    <span className="text-xs text-gray-400">{fmt(v.data)}</span>
-                    {v.allegati?.length>0&&<span className="text-xs text-blue-400 font-medium">📎 {v.allegati.length}</span>}
-                  </div>
-                  <p className="font-bold text-gray-800">Dr. {v.medico}</p>
-                  {v.diagnosi&&<p className="text-sm text-gray-500 mt-0.5 truncate">{v.diagnosi}</p>}
-                  <p className="text-xs text-gray-300 mt-1">Tocca per dettagli →</p>
-                </div>
-                <button onClick={e=>{e.stopPropagation();onDel(v.id)}} className="text-gray-200 hover:text-red-400 transition-colors text-xl ml-3 mt-0.5 flex-shrink-0">🗑</button>
+        <div>
+          {daFare.length>0&&(
+            <div className="mb-6">
+              <p className="text-xs font-black text-blue-600 uppercase tracking-wider mb-2">📅 Da fare ({daFare.length})</p>
+              <div className="space-y-3">
+                {daFare.map(v=><VisitaCard key={v.id} v={v} onDel={onDel} onView={onView} futura/>)}
               </div>
             </div>
-          ))}
+          )}
+          {fatte.length>0&&(
+            <div>
+              <p className="text-xs font-black text-gray-400 uppercase tracking-wider mb-2">✅ Fatte ({fatte.length})</p>
+              <div className="space-y-3">
+                {fatte.map(v=><VisitaCard key={v.id} v={v} onDel={onDel} onView={onView}/>)}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
