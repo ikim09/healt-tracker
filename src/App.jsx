@@ -1,23 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { t, tv, tTab, setLang, LANGS, locale } from "./i18n";
+import { PARAMS } from "./params";
 
 const APP_VERSION = "1.0.2";
 
 const SPEC = ["Medicina generale","Cardiologia","Dermatologia","Endocrinologia","Gastroenterologia","Ginecologia","Neurologia","Oftalmologia","Ortopedia","Otorinolaringoiatria","Pneumologia","Reumatologia","Urologia","Altro"];
-const PARAMS = [
-  {n:"Glicemia",u:"mg/dL",min:70,max:99},{n:"Colesterolo totale",u:"mg/dL",min:0,max:200},
-  {n:"Colesterolo HDL",u:"mg/dL",min:40,max:null},{n:"Colesterolo LDL",u:"mg/dL",min:0,max:130},
-  {n:"Trigliceridi",u:"mg/dL",min:0,max:150},{n:"Emoglobina",u:"g/dL",min:12,max:17.5},
-  {n:"Ematocrito",u:"%",min:36,max:53},{n:"Globuli bianchi",u:"×10³/µL",min:4.5,max:11},
-  {n:"Globuli rossi",u:"M/µL",min:4.5,max:5.9},{n:"Piastrine",u:"×10³/µL",min:150,max:400},
-  {n:"Creatinina",u:"mg/dL",min:0.6,max:1.3},{n:"Urea",u:"mg/dL",min:10,max:50},
-  {n:"AST/GOT",u:"U/L",min:0,max:40},{n:"ALT/GPT",u:"U/L",min:0,max:40},
-  {n:"Gamma-GT",u:"U/L",min:0,max:55},{n:"TSH",u:"mUI/L",min:0.4,max:4},
-  {n:"Ferro",u:"µg/dL",min:60,max:170},{n:"Ferritina",u:"ng/mL",min:12,max:300},
-  {n:"VES",u:"mm/h",min:0,max:20},{n:"PCR",u:"mg/L",min:0,max:5},
-  {n:"Vitamina D",u:"ng/mL",min:30,max:100},{n:"Vitamina B12",u:"pg/mL",min:200,max:900},
-];
 const VITALI = [
   {n:"Peso",u:"kg",c:"#3b82f6"},{n:"Pressione",u:"mmHg",c:"#ef4444"},
   {n:"Frequenza cardiaca",u:"bpm",c:"#ec4899"},
@@ -221,6 +209,91 @@ function VisitaModal({onSave, onClose}) {
   );
 }
 
+function ScansionaReferto({onFound}) {
+  const ref = useRef(null);
+  const [stato, setStato] = useState('idle'); // idle | work | done | error
+  const [prog, setProg] = useState(0);
+  const [trovati, setTrovati] = useState([]);
+  const [scelti, setScelti] = useState({});
+
+  const handle = async e => {
+    const file = e.target.files?.[0];
+    e.target.value='';
+    if (!file) return;
+    setStato('work'); setProg(0); setTrovati([]);
+    try {
+      const { leggiReferto } = await import('./ocr');
+      const { params } = await leggiReferto(file, p=>setProg(Math.min(0.99,p)));
+      setTrovati(params);
+      setScelti(Object.fromEntries(params.map(p=>[p.n,true])));
+      setStato(params.length ? 'done' : 'error');
+    } catch (err) {
+      console.error(err);
+      setStato('error');
+    }
+  };
+
+  const conferma = () => {
+    onFound(trovati.filter(p=>scelti[p.n]));
+    setStato('idle'); setTrovati([]);
+  };
+
+  return (
+    <div className="mb-4">
+      <input ref={ref} type="file" accept="image/*,application/pdf" className="hidden" onChange={handle}/>
+      {stato==='idle'&&(
+        <button type="button" onClick={()=>ref.current?.click()}
+          className="w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 border-2 border-dashed transition-colors hover:bg-rose-50"
+          style={{borderColor:'#fecdd3',background:'#fff7f7'}}>
+          <span className="text-2xl">🔍</span>
+          <span className="text-left flex-1">
+            <span className="block text-sm font-bold" style={{color:'#be123c'}}>{t('scan_title')}</span>
+            <span className="block text-xs text-gray-400">{t('scan_sub')}</span>
+          </span>
+        </button>
+      )}
+      {stato==='work'&&(
+        <div className="rounded-2xl p-4 text-center" style={{background:'#fff7f7'}}>
+          <p className="text-2xl mb-2">⏳</p>
+          <p className="text-sm font-bold text-gray-600">{t('scan_working')}</p>
+          <div className="h-1.5 bg-white rounded-full mt-3 overflow-hidden">
+            <div className="h-full rounded-full transition-all" style={{width:`${Math.round(prog*100)}%`,background:'#f43f5e'}}/>
+          </div>
+          <p className="text-xs text-gray-400 mt-2">{t('scan_wait')}</p>
+        </div>
+      )}
+      {stato==='done'&&(
+        <div className="rounded-2xl p-4" style={{background:'#fff7f7'}}>
+          <p className="text-sm font-bold mb-1" style={{color:'#be123c'}}>{t('scan_found',trovati.length)}</p>
+          <p className="text-xs text-gray-400 mb-3">{t('scan_check')}</p>
+          <div className="space-y-1.5 max-h-52 overflow-y-auto mb-3">
+            {trovati.map(p=>(
+              <label key={p.n} className="flex items-center gap-2.5 bg-white rounded-xl px-3 py-2.5 cursor-pointer">
+                <input type="checkbox" checked={!!scelti[p.n]} onChange={()=>setScelti(s=>({...s,[p.n]:!s[p.n]}))} className="w-4 h-4 accent-rose-500"/>
+                <span className="text-xs text-gray-700 flex-1">{tv(p.n)}</span>
+                <span className={`font-bold text-sm ${isAbn(p)?'text-red-600':'text-gray-700'}`}>{p.v}</span>
+                <span className="text-xs text-gray-400">{p.u}</span>
+              </label>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={()=>setStato('idle')} className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-white text-gray-500">{t('cancel')}</button>
+            <button type="button" onClick={conferma} className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white" style={{background:'#f43f5e'}}>{t('scan_add')}</button>
+          </div>
+        </div>
+      )}
+      {stato==='error'&&(
+        <div className="rounded-2xl p-4 text-center" style={{background:'#fff7f7'}}>
+          <p className="text-2xl mb-1">😕</p>
+          <p className="text-sm font-bold text-gray-600">{t('scan_none')}</p>
+          <p className="text-xs text-gray-400 mt-1 mb-3">{t('scan_none_sub')}</p>
+          <button type="button" onClick={()=>setStato('idle')} className="w-full py-2.5 rounded-xl text-xs font-bold bg-white text-gray-500">{t('scan_retry')}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AnalisiModal({onSave, onClose}) {
   const [f, sf] = useState({data:'',note:'',params:[],allegati:[]});
   const [sp, setSp] = useState('');
@@ -244,6 +317,10 @@ function AnalisiModal({onSave, onClose}) {
     <Modal title={t('new_test')} onClose={onClose} onSave={ok?doSave:null}
       saveLabel={ok?t('save_test'):t('need_test')} saveBg="linear-gradient(135deg,#be123c,#f43f5e)">
       <Inp lbl={t('date_l')} type="date" value={f.data} onChange={e=>sf(p=>({...p,data:e.target.value}))}/>
+      <ScansionaReferto onFound={ps=>sf(prev=>{
+        const nomi=new Set(ps.map(p=>p.n));
+        return {...prev, params:[...prev.params.filter(p=>!nomi.has(p.n)), ...ps]};
+      })}/>
       <Txt lbl={t('notes_l')} placeholder={t('test_notes_ph')} value={f.note} onChange={e=>sf(p=>({...p,note:e.target.value}))}/>
       <div className="mb-3">
         <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{t('add_param')}</label>

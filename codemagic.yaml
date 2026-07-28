@@ -17,7 +17,13 @@ workflows:
         script: npm install
 
       - name: Build web app
-        script: npm run build
+        script: |
+          npm run build
+          # I file OCR devono essere inclusi nell'app per funzionare offline
+          if [ ! -f dist/tessdata/ita.traineddata.gz ]; then
+            echo "ATTENZIONE: dati OCR mancanti nella build"; exit 1
+          fi
+          echo "Dati OCR inclusi correttamente"
 
       - name: Capacitor CLI
         script: npm install -g @capacitor/cli

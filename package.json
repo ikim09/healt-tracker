@@ -4,8 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "npm run setup:ocr && vite",
+    "setup:ocr": "node scripts/setup-ocr.mjs",
+    "build": "npm run setup:ocr && vite build",
     "sync": "vite build && cap sync android",
     "open:android": "cap open android",
     "lint": "oxlint",
@@ -18,7 +19,9 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-is": "^19.2.0",
-    "recharts": "^3.2.1"
+    "recharts": "^3.2.1",
+    "tesseract.js": "^5.1.1",
+    "pdfjs-dist": "^4.10.38"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
