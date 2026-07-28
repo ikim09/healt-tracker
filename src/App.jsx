@@ -200,15 +200,23 @@ function AnalisiModal({onSave, onClose}) {
   const [f, sf] = useState({data:'',note:'',params:[],allegati:[]});
   const [sp, setSp] = useState('');
   const [vp, setVp] = useState('');
+  const mkParam = (name,val) => {
+    const def=PARAMS.find(p=>p.n===name);
+    return {n:name,u:def?.u||'',v:parseFloat(String(val).replace(',','.')),min:def?.min,max:def?.max};
+  };
+  const pendOk = sp && vp && !isNaN(parseFloat(String(vp).replace(',','.')));
   const addP = () => {
-    if (!sp||!vp) return;
-    const def=PARAMS.find(p=>p.n===sp);
-    sf(prev=>({...prev,params:[...prev.params.filter(p=>p.n!==sp),{n:sp,u:def?.u||'',v:parseFloat(vp),min:def?.min,max:def?.max}]}));
+    if (!pendOk) return;
+    sf(prev=>({...prev,params:[...prev.params.filter(p=>p.n!==sp),mkParam(sp,vp)]}));
     setSp(''); setVp('');
   };
-  const ok = f.data && f.params.length>0;
+  const ok = f.data && (f.params.length>0 || pendOk);
+  const doSave = () => {
+    const params = pendOk ? [...f.params.filter(p=>p.n!==sp),mkParam(sp,vp)] : f.params;
+    onSave({...f, params});
+  };
   return (
-    <Modal title="🩸 Nuova Analisi del Sangue" onClose={onClose} onSave={ok?()=>onSave(f):null}
+    <Modal title="🩸 Nuova Analisi del Sangue" onClose={onClose} onSave={ok?doSave:null}
       saveLabel={ok?"Salva Analisi":"Aggiungi data e almeno un parametro"} saveBg="linear-gradient(135deg,#be123c,#f43f5e)">
       <Inp lbl="Data *" type="date" value={f.data} onChange={e=>sf(p=>({...p,data:e.target.value}))}/>
       <Txt lbl="Note" placeholder="Laboratorio, annotazioni..." value={f.note} onChange={e=>sf(p=>({...p,note:e.target.value}))}/>
@@ -219,7 +227,7 @@ function AnalisiModal({onSave, onClose}) {
             <option value="">-- Scegli parametro --</option>
             {PARAMS.filter(p=>!f.params.find(fp=>fp.n===p.n)).map(p=><option key={p.n}>{p.n}</option>)}
           </select>
-          <input type="number" step="0.01" placeholder="Val." value={vp} onChange={e=>setVp(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addP()}
+          <input type="text" inputMode="decimal" placeholder="Val." value={vp} onChange={e=>setVp(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addP()}
             className="w-20 border border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-red-400 text-center"/>
           <button onClick={addP} className="w-11 h-11 rounded-xl bg-red-500 text-white font-bold text-xl hover:bg-red-600 flex items-center justify-center flex-shrink-0">+</button>
         </div>
@@ -247,12 +255,13 @@ function AnalisiModal({onSave, onClose}) {
 function VitaleModal({onSave, onClose}) {
   const [f, sf] = useState({data:'',tipo:VITALI[0].n,valore:''});
   const ti = VITALI.find(v=>v.n===f.tipo);
-  const ok = f.data && f.valore;
+  const num = parseFloat(String(f.valore).replace(',','.'));
+  const ok = f.data && f.valore && !isNaN(num);
   return (
-    <Modal title="💓 Nuovo Dato Vitale" onClose={onClose} onSave={ok?()=>onSave(f):null} saveLabel="Salva" saveBg="linear-gradient(135deg,#7e22ce,#a855f7)">
+    <Modal title="💓 Nuovo Dato Vitale" onClose={onClose} onSave={ok?()=>onSave({...f,valore:num}):null} saveLabel="Salva" saveBg="linear-gradient(135deg,#7e22ce,#a855f7)">
       <Inp lbl="Data *" type="date" value={f.data} onChange={e=>sf(p=>({...p,data:e.target.value}))}/>
       <Sel lbl="Tipo" opts={VITALI.map(v=>v.n)} value={f.tipo} onChange={e=>sf(p=>({...p,tipo:e.target.value}))}/>
-      <Inp lbl={`Valore${ti?' ('+ti.u+')':''} *`} type="number" step="0.1" placeholder="0.0" value={f.valore} onChange={e=>sf(p=>({...p,valore:e.target.value}))}/>
+      <Inp lbl={`Valore${ti?' ('+ti.u+')':''} *`} type="text" inputMode="decimal" placeholder="0.0" value={f.valore} onChange={e=>sf(p=>({...p,valore:e.target.value}))}/>
     </Modal>
   );
 }
