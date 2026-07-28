@@ -426,6 +426,61 @@ function RicetteView({ricette, onAdd, onToggle, onDel}) {
   );
 }
 
+function NotaModal({onSave, onClose}) {
+  const oggi = new Date().toISOString().slice(0,10);
+  const [f, sf] = useState({data:oggi,titolo:'',testo:''});
+  const ok = f.data && f.titolo.trim();
+  return (
+    <Modal title={t('new_note')} onClose={onClose} onSave={ok?()=>onSave(f):null}
+      saveLabel={ok?t('save_note'):t('need_note')} saveBg="linear-gradient(135deg,#b45309,#f59e0b)">
+      <Inp lbl={t('date_l')} type="date" value={f.data} onChange={e=>sf(p=>({...p,data:e.target.value}))}/>
+      <Inp lbl={t('title_l')} placeholder={t('title_ph')} value={f.titolo} onChange={e=>sf(p=>({...p,titolo:e.target.value}))}/>
+      <Txt lbl={t('text_l')} placeholder={t('text_ph')} rows={6} value={f.testo} onChange={e=>sf(p=>({...p,testo:e.target.value}))}/>
+    </Modal>
+  );
+}
+
+function ViewNotaModal({n, onClose}) {
+  return (
+    <Modal title={`📝 ${n.titolo}`} onClose={onClose}>
+      <p className="text-xs text-gray-400 mb-3">{fmt(n.data)}</p>
+      {n.testo
+        ? <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{n.testo}</p>
+        : <p className="text-sm text-gray-300 italic">{t('note_empty')}</p>}
+    </Modal>
+  );
+}
+
+function NoteView({note, onAdd, onDel, onView}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <div><h2 className="text-lg font-black text-gray-800">{t('notes_title')}</h2><p className="text-xs text-gray-400">{t('notes_count',note.length)}</p></div>
+        <button onClick={onAdd} className="text-white text-sm font-bold px-4 py-2.5 rounded-2xl shadow-md hover:opacity-90" style={{background:'linear-gradient(135deg,#b45309,#f59e0b)'}}>{t('new_f')}</button>
+      </div>
+      {note.length===0?(
+        <div className="text-center py-16"><p className="text-5xl mb-3">📝</p><p className="text-gray-400 px-8">{t('no_notes')}</p></div>
+      ):(
+        <div className="space-y-3">
+          {note.map(n=>(
+            <div key={n.id} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50 cursor-pointer hover:shadow-md transition-all" style={{borderLeft:'3px solid #f59e0b'}} onClick={()=>onView(n)}>
+              <div className="flex items-start justify-between">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-gray-400 mb-1">{fmt(n.data)}</p>
+                  <p className="font-bold text-gray-800">{n.titolo}</p>
+                  {n.testo&&<p className="text-sm text-gray-500 mt-0.5 line-clamp-2">{n.testo}</p>}
+                  <p className="text-xs text-gray-300 mt-1">{t('tap_details')}</p>
+                </div>
+                <button onClick={e=>{e.stopPropagation();onDel(n.id)}} className="text-gray-200 hover:text-red-400 transition-colors text-xl ml-3 flex-shrink-0">🗑</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ViewVisitaModal({v, onClose}) {
   return (
     <Modal title={t('visit_of',fmt(v.data))} onClose={onClose}>
@@ -780,6 +835,7 @@ export default function App() {
   const [vitali, setVitali] = useState([]);
   const [allenamenti, setAllenamenti] = useState([]);
   const [ricette, setRicette] = useState([]);
+  const [note, setNote] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [lang, setLangState] = useState('it');
@@ -787,7 +843,7 @@ export default function App() {
   useEffect(()=>{
     (async()=>{
       try { const r=await window.storage.get('ht-lang'); if(r?.value){ setLang(r.value); setLangState(r.value); } } catch(e){}
-      for (const [k,fn] of [['ht-visite',setVisite],['ht-analisi',setAnalisi],['ht-allenamenti',setAllenamenti],['ht-ricette',setRicette]]) {
+      for (const [k,fn] of [['ht-visite',setVisite],['ht-analisi',setAnalisi],['ht-allenamenti',setAllenamenti],['ht-ricette',setRicette],['ht-note',setNote]]) {
         try { const r=await window.storage.get(k); if(r) fn(JSON.parse(r.value)); } catch(e){}
       }
       try {
@@ -823,7 +879,7 @@ export default function App() {
 
   const toggleRicetta = id => setRicette(prev=>{ const u=prev.map(r=>r.id===id?{...r,usata:!r.usata}:r); sv('ht-ricette',u); return u; });
 
-  const TABS = [{id:'home',i:'🏠'},{id:'visite',i:'👨‍⚕️'},{id:'analisi',i:'🩸'},{id:'vitali',i:'💓'},{id:'sport',i:'💪'},{id:'ricette',i:'📋'}];
+  const TABS = [{id:'home',i:'🏠'},{id:'visite',i:'👨‍⚕️'},{id:'analisi',i:'🩸'},{id:'vitali',i:'💓'},{id:'sport',i:'💪'},{id:'ricette',i:'📋'},{id:'note',i:'📝'}];
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-screen" style={{background:'#f8faff'}}>
@@ -853,14 +909,15 @@ export default function App() {
           {tab==='vitali'  && <VitaliView vitali={vitali} onAdd={()=>setModal('vitale')} onDel={id=>del('ht-vitali',setVitali,id)}/>}
           {tab==='sport'   && <AllenamentiView allenamenti={allenamenti} onAdd={()=>setModal('allenamento')} onDel={id=>del('ht-allenamenti',setAllenamenti,id)}/>}
           {tab==='ricette' && <RicetteView ricette={ricette} onAdd={()=>setModal('ricetta')} onToggle={toggleRicetta} onDel={id=>del('ht-ricette',setRicette,id)}/>}
+          {tab==='note'    && <NoteView note={note} onAdd={()=>setModal('nota')} onDel={id=>del('ht-note',setNote,id)} onView={n=>setModal({t:'viewN',d:n})}/>}
         </div>
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 flex bg-white" style={{borderTop:'1px solid #f3f4f6',boxShadow:'0 -8px 24px rgba(0,0,0,0.06)',paddingBottom:'env(safe-area-inset-bottom)'}}>
         {TABS.map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)} className="flex-1 flex flex-col items-center py-3 gap-0.5 transition-colors">
-            <span className="text-xl leading-none">{t.i}</span>
-            <span className="text-xs font-bold" style={{color:tab===t.id?'#1e40af':'#9ca3af'}}>{tTab(t.id)}</span>
+          <button key={t.id} onClick={()=>setTab(t.id)} className="flex-1 min-w-0 flex flex-col items-center py-3 gap-0.5 transition-colors">
+            <span className="text-lg leading-none">{t.i}</span>
+            <span className="font-bold truncate max-w-full px-0.5" style={{fontSize:'10px',color:tab===t.id?'#1e40af':'#9ca3af'}}>{tTab(t.id)}</span>
             {tab===t.id&&<div className="w-1.5 h-1.5 rounded-full mt-0.5" style={{background:'#1e40af'}}/>}
           </button>
         ))}
@@ -871,6 +928,8 @@ export default function App() {
       {modal==='vitale'   && <VitaleModal  onSave={d=>add('ht-vitali',setVitali,d)}  onClose={()=>setModal(null)}/>}
       {modal==='allenamento' && <AllenamentoModal onSave={d=>add('ht-allenamenti',setAllenamenti,d)} onClose={()=>setModal(null)}/>}
       {modal==='ricetta'  && <RicettaModal onSave={d=>add('ht-ricette',setRicette,d)} onClose={()=>setModal(null)}/>}
+      {modal==='nota'     && <NotaModal onSave={d=>add('ht-note',setNote,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='viewN' && <ViewNotaModal n={modal.d} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewV' && <ViewVisitaModal v={modal.d} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewA' && <ViewAnalisiModal a={modal.d} onClose={()=>setModal(null)}/>}
       {modal==='export'   && <ExportModal visite={visite} analisi={analisi} vitali={vitali} onClose={()=>setModal(null)}/>}
