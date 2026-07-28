@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from "react";
+
+const APP_VERSION = "1.0.2";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 const SPEC = ["Medicina generale","Cardiologia","Dermatologia","Endocrinologia","Gastroenterologia","Ginecologia","Neurologia","Oftalmologia","Ortopedia","Otorinolaringoiatria","Pneumologia","Reumatologia","Urologia","Altro"];
@@ -308,6 +310,33 @@ function ViewAnalisiModal({a, onClose}) {
   );
 }
 
+function SettingsModal({onExport, onClose}) {
+  const [info, setInfo] = useState(false);
+  const Row = ({icon,label,desc,onClick,open}) => (
+    <button onClick={onClick} className="w-full flex items-center gap-3 bg-gray-50 rounded-2xl p-4 mb-2 text-left active:bg-gray-100 hover:bg-gray-100 transition-colors">
+      <span className="text-2xl">{icon}</span>
+      <span className="flex-1 min-w-0">
+        <span className="block font-bold text-gray-800 text-sm">{label}</span>
+        {desc&&<span className="block text-xs text-gray-400">{desc}</span>}
+      </span>
+      <span className="text-gray-300 text-lg">{open?'▾':'›'}</span>
+    </button>
+  );
+  return (
+    <Modal title="⚙️ Impostazioni" onClose={onClose}>
+      <Row icon="📥" label="Esporta dati" desc="Visite, analisi e vitali in CSV" onClick={onExport}/>
+      <Row icon="ℹ️" label="Informazioni sull'app" desc={`Versione ${APP_VERSION}`} onClick={()=>setInfo(v=>!v)} open={info}/>
+      {info&&(
+        <div className="rounded-2xl p-4 text-xs text-gray-500 leading-relaxed" style={{background:'#eff6ff'}}>
+          <p className="font-bold text-gray-700 mb-1">🏥 HealthTracker {APP_VERSION}</p>
+          <p>Il tuo diario della salute personale. Tutti i dati restano esclusivamente sul tuo dispositivo: nessun account, nessun cloud.</p>
+          <p className="mt-2">Icona app creata da Magnific – Flaticon</p>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function ExportModal({visite,analisi,vitali,onClose}) {
   const expVisite = () => {
     const h=['Data','Medico','Specialità','Diagnosi','Note','N. Allegati'];
@@ -609,7 +638,7 @@ export default function App() {
   return (
     <div className="flex flex-col min-h-screen" style={{background:'#f8faff',fontFamily:'-apple-system,BlinkMacSystemFont,sans-serif'}}>
       <div className="px-5 pb-4 flex items-center gap-3 flex-shrink-0" style={{background:'linear-gradient(135deg,#1e3a8a,#2563eb)',paddingTop:'calc(env(safe-area-inset-top) + 1rem)'}}>
-        <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl" style={{background:'rgba(255,255,255,0.2)'}}>🏥</div>
+        <button onClick={()=>setModal('settings')} title="Impostazioni" className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl active:opacity-60 transition-opacity" style={{background:'rgba(255,255,255,0.2)'}}>🏥</button>
         <div><h1 className="font-black text-white text-base leading-tight">HealthTracker</h1><p className="text-blue-200 text-xs">Il tuo diario della salute</p></div>
         <div className="ml-auto flex items-center gap-2">
           <button onClick={()=>setModal('export')} title="Esporta CSV"
@@ -645,6 +674,7 @@ export default function App() {
       {modal?.t==='viewV' && <ViewVisitaModal v={modal.d} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewA' && <ViewAnalisiModal a={modal.d} onClose={()=>setModal(null)}/>}
       {modal==='export'   && <ExportModal visite={visite} analisi={analisi} vitali={vitali} onClose={()=>setModal(null)}/>}
+      {modal==='settings' && <SettingsModal onExport={()=>setModal('export')} onClose={()=>setModal(null)}/>}
     </div>
   );
 }
