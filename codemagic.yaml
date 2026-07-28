@@ -116,7 +116,11 @@ workflows:
 
       - name: Build IPA
         script: |
-          xcode-project build-ipa --workspace ios/App/App.xcworkspace --scheme App
+          if [ -d "ios/App/App.xcworkspace" ]; then
+            xcode-project build-ipa --workspace ios/App/App.xcworkspace --scheme App
+          else
+            xcode-project build-ipa --project ios/App/App.xcodeproj --scheme App
+          fi
 
     artifacts:
       - build/ios/ipa/*.ipa
