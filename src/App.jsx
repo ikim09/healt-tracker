@@ -22,6 +22,11 @@ const VITALI = [
   {n:"Pressione diastolica",u:"mmHg",c:"#f97316"},{n:"Frequenza cardiaca",u:"bpm",c:"#ec4899"},
   {n:"Temperatura",u:"°C",c:"#a855f7"},{n:"Saturazione O₂",u:"%",c:"#06b6d4"},
 ];
+const SPORT = [
+  {n:"Palestra",i:"🏋️"},{n:"Corsa",i:"🏃"},{n:"Camminata",i:"🚶"},{n:"Bici",i:"🚴"},
+  {n:"Nuoto",i:"🏊"},{n:"Calcio",i:"⚽"},{n:"Tennis / Padel",i:"🎾"},{n:"Yoga / Stretching",i:"🧘"},{n:"Altro",i:"💪"},
+];
+const sportIcon = t => SPORT.find(s=>s.n===t)?.i || "💪";
 
 const fmt = d => { if(!d) return '-'; const p=d.split('-'); return `${p[2]}/${p[1]}/${p[0]}`; };
 const isAbn = p => p.min!==undefined&&(p.v<p.min||(p.max!==null&&p.max!==undefined&&p.v>p.max));
@@ -265,6 +270,62 @@ function VitaleModal({onSave, onClose}) {
       <Sel lbl="Tipo" opts={VITALI.map(v=>v.n)} value={f.tipo} onChange={e=>sf(p=>({...p,tipo:e.target.value}))}/>
       <Inp lbl={`Valore${ti?' ('+ti.u+')':''} *`} type="text" inputMode="decimal" placeholder="0.0" value={f.valore} onChange={e=>sf(p=>({...p,valore:e.target.value}))}/>
     </Modal>
+  );
+}
+
+function AllenamentoModal({onSave, onClose}) {
+  const [f, sf] = useState({data:'',tipo:SPORT[0].n,durata:'',note:''});
+  const num = parseFloat(String(f.durata).replace(',','.'));
+  const ok = f.data && f.durata && !isNaN(num) && num>0;
+  return (
+    <Modal title="💪 Nuovo Allenamento" onClose={onClose} onSave={ok?()=>onSave({...f,durata:Math.round(num)}):null}
+      saveLabel={ok?"Salva Allenamento":"Inserisci data e durata"} saveBg="linear-gradient(135deg,#15803d,#22c55e)">
+      <Inp lbl="Data *" type="date" value={f.data} onChange={e=>sf(p=>({...p,data:e.target.value}))}/>
+      <Sel lbl="Attività" opts={SPORT.map(s=>s.n)} value={f.tipo} onChange={e=>sf(p=>({...p,tipo:e.target.value}))}/>
+      <Inp lbl="Durata (minuti) *" type="text" inputMode="numeric" placeholder="Es. 45" value={f.durata} onChange={e=>sf(p=>({...p,durata:e.target.value}))}/>
+      <Txt lbl="Note" placeholder="Esercizi, distanza, sensazioni..." value={f.note} onChange={e=>sf(p=>({...p,note:e.target.value}))}/>
+    </Modal>
+  );
+}
+
+function AllenamentiView({allenamenti, onAdd, onDel}) {
+  const d = new Date();
+  const lun = new Date(d); lun.setDate(d.getDate()-((d.getDay()+6)%7));
+  const lunStr = `${lun.getFullYear()}-${String(lun.getMonth()+1).padStart(2,'0')}-${String(lun.getDate()).padStart(2,'0')}`;
+  const sett = allenamenti.filter(a=>a.data>=lunStr);
+  const minSett = sett.reduce((s,a)=>s+(a.durata||0),0);
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <div><h2 className="text-lg font-black text-gray-800">Allenamenti</h2><p className="text-xs text-gray-400">{allenamenti.length} registrat{allenamenti.length===1?'o':'i'}</p></div>
+        <button onClick={onAdd} className="text-white text-sm font-bold px-4 py-2.5 rounded-2xl shadow-md hover:opacity-90" style={{background:'linear-gradient(135deg,#15803d,#22c55e)'}}>+ Nuovo</button>
+      </div>
+      <div className="rounded-2xl p-4 mb-5 flex items-center justify-around text-center" style={{background:'linear-gradient(135deg,#f0fdf4,#dcfce7)'}}>
+        <div><p className="text-2xl font-black text-green-700">{sett.length}</p><p className="text-xs text-gray-500">questa settimana</p></div>
+        <div className="w-px h-8 bg-green-200"/>
+        <div><p className="text-2xl font-black text-green-700">{minSett}<span className="text-sm font-bold"> min</span></p><p className="text-xs text-gray-500">tempo totale</p></div>
+      </div>
+      {allenamenti.length===0?(
+        <div className="text-center py-12"><p className="text-5xl mb-3">💪</p><p className="text-gray-400">Nessun allenamento registrato</p></div>
+      ):(
+        <div className="space-y-3">
+          {allenamenti.map(a=>(
+            <div key={a.id} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50 flex items-center gap-3">
+              <span className="text-3xl">{sportIcon(a.tipo)}</span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-bold text-gray-800">{a.tipo}</p>
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{background:'#f0fdf4',color:'#15803d'}}>{a.durata} min</span>
+                </div>
+                <p className="text-xs text-gray-400 mt-0.5">{fmt(a.data)}</p>
+                {a.note&&<p className="text-sm text-gray-500 mt-0.5 truncate">{a.note}</p>}
+              </div>
+              <button onClick={()=>onDel(a.id)} className="text-gray-200 hover:text-red-400 transition-colors text-xl flex-shrink-0">🗑</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -597,12 +658,13 @@ export default function App() {
   const [visite, setVisite] = useState([]);
   const [analisi, setAnalisi] = useState([]);
   const [vitali, setVitali] = useState([]);
+  const [allenamenti, setAllenamenti] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
 
   useEffect(()=>{
     (async()=>{
-      for (const [k,fn] of [['ht-visite',setVisite],['ht-analisi',setAnalisi],['ht-vitali',setVitali]]) {
+      for (const [k,fn] of [['ht-visite',setVisite],['ht-analisi',setAnalisi],['ht-vitali',setVitali],['ht-allenamenti',setAllenamenti]]) {
         try { const r=await window.storage.get(k); if(r) fn(JSON.parse(r.value)); } catch(e){}
       }
       setLoading(false);
@@ -627,7 +689,7 @@ export default function App() {
     setter(prev=>{ const u=prev.filter(x=>x.id!==id); sv(key,u); return u; });
   };
 
-  const TABS = [{id:'home',l:'Home',i:'🏠'},{id:'visite',l:'Visite',i:'👨‍⚕️'},{id:'analisi',l:'Analisi',i:'🩸'},{id:'vitali',l:'Vitali',i:'💓'}];
+  const TABS = [{id:'home',l:'Home',i:'🏠'},{id:'visite',l:'Visite',i:'👨‍⚕️'},{id:'analisi',l:'Analisi',i:'🩸'},{id:'vitali',l:'Vitali',i:'💓'},{id:'sport',l:'Sport',i:'💪'}];
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-screen" style={{background:'#f8faff'}}>
@@ -655,6 +717,7 @@ export default function App() {
           {tab==='visite'  && <Visite visite={visite} onAdd={()=>setModal('visita')} onDel={id=>del('ht-visite',setVisite,id)} onView={v=>setModal({t:'viewV',d:v})}/>}
           {tab==='analisi' && <AnalisiView analisi={analisi} onAdd={()=>setModal('analisi')} onDel={id=>del('ht-analisi',setAnalisi,id)} onView={a=>setModal({t:'viewA',d:a})}/>}
           {tab==='vitali'  && <VitaliView vitali={vitali} onAdd={()=>setModal('vitale')} onDel={id=>del('ht-vitali',setVitali,id)}/>}
+          {tab==='sport'   && <AllenamentiView allenamenti={allenamenti} onAdd={()=>setModal('allenamento')} onDel={id=>del('ht-allenamenti',setAllenamenti,id)}/>}
         </div>
       </div>
 
@@ -671,6 +734,7 @@ export default function App() {
       {modal==='visita'   && <VisitaModal  onSave={d=>add('ht-visite',setVisite,d)}  onClose={()=>setModal(null)}/>}
       {modal==='analisi'  && <AnalisiModal onSave={d=>add('ht-analisi',setAnalisi,d)} onClose={()=>setModal(null)}/>}
       {modal==='vitale'   && <VitaleModal  onSave={d=>add('ht-vitali',setVitali,d)}  onClose={()=>setModal(null)}/>}
+      {modal==='allenamento' && <AllenamentoModal onSave={d=>add('ht-allenamenti',setAllenamenti,d)} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewV' && <ViewVisitaModal v={modal.d} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewA' && <ViewAnalisiModal a={modal.d} onClose={()=>setModal(null)}/>}
       {modal==='export'   && <ExportModal visite={visite} analisi={analisi} vitali={vitali} onClose={()=>setModal(null)}/>}
