@@ -8,6 +8,7 @@ const APP_VERSION = "1.0.2";
 const SPEC = ["Medicina generale","Cardiologia","Dermatologia","Endocrinologia","Gastroenterologia","Ginecologia","Neurologia","Oftalmologia","Ortopedia","Otorinolaringoiatria","Pneumologia","Reumatologia","Urologia","Altro"];
 const VITALI = [
   {n:"Peso",u:"kg",c:"#3b82f6"},{n:"Pressione",u:"mmHg",c:"#ef4444"},
+  {n:"Glicemia",u:"mg/dL",c:"#f59e0b"},
   {n:"Frequenza cardiaca",u:"bpm",c:"#ec4899"},
   {n:"Temperatura",u:"°C",c:"#a855f7"},{n:"Saturazione O₂",u:"%",c:"#06b6d4"},
 ];
@@ -368,13 +369,15 @@ function AnalisiModal({onSave, onClose}) {
 }
 
 function VitaleModal({onSave, onClose}) {
-  const [f, sf] = useState({data:'',tipo:VITALI[0].n,valore:'',massima:'',minima:''});
+  const [f, sf] = useState({data:'',tipo:VITALI[0].n,valore:'',massima:'',minima:'',note:''});
   const ti = VITALI.find(v=>v.n===f.tipo);
   const isP = f.tipo==='Pressione';
   const pf = s => parseFloat(String(s).replace(',','.'));
   const num = pf(f.valore), nMax = pf(f.massima), nMin = pf(f.minima);
   const ok = f.data && (isP ? (f.massima && f.minima && !isNaN(nMax) && !isNaN(nMin)) : (f.valore && !isNaN(num)));
-  const doSave = () => onSave(isP ? {data:f.data,tipo:f.tipo,massima:nMax,minima:nMin} : {data:f.data,tipo:f.tipo,valore:num});
+  const doSave = () => onSave(isP
+    ? {data:f.data,tipo:f.tipo,massima:nMax,minima:nMin,note:f.note}
+    : {data:f.data,tipo:f.tipo,valore:num,note:f.note});
   return (
     <Modal title={t('new_vital')} onClose={onClose} onSave={ok?doSave:null} saveLabel={t('save')} saveBg="linear-gradient(135deg,#7e22ce,#a855f7)">
       <Inp lbl={t('date_l')} type="date" value={f.data} onChange={e=>sf(p=>({...p,data:e.target.value}))}/>
@@ -387,6 +390,7 @@ function VitaleModal({onSave, onClose}) {
       ) : (
         <Inp lbl={t('value_l',ti?.u)} type="text" inputMode="decimal" placeholder="0.0" value={f.valore} onChange={e=>sf(p=>({...p,valore:e.target.value}))}/>
       )}
+      <Txt lbl={t('notes_l')} placeholder={t('vital_notes_ph')} rows={2} value={f.note} onChange={e=>sf(p=>({...p,note:e.target.value}))}/>
     </Modal>
   );
 }
@@ -728,6 +732,9 @@ function SearchModal({dati, onGo, onClose}) {
       .map(x=>({id:'t'+x.id,tab:'terapie',i:'💊',tit:x.farmaco,sub:x.dose,data:x.inizio})),
     ...dati.allenamenti.filter(a=>has(a.tipo,tv(a.tipo),a.note))
       .map(a=>({id:'s'+a.id,tab:'sport',i:'💪',tit:tv(a.tipo),sub:`${a.durata} min`,data:a.data})),
+    ...dati.vitali.filter(v=>has(v.tipo,tv(v.tipo),v.note))
+      .map(v=>({id:'w'+v.id,tab:'vitali',i:'💓',tit:tv(v.tipo),
+        sub:v.note||(v.tipo==='Pressione'?`${v.massima}/${v.minima}`:`${v.valore} ${VITALI.find(x=>x.n===v.tipo)?.u||''}`),data:v.data})),
   ].sort((x,y)=>String(y.data).localeCompare(String(x.data)));
 
   return (
@@ -848,8 +855,8 @@ function ExportModal({visite,analisi,vitali,onClose}) {
     dlCSV('analisi_sangue.csv',mkCSV(h,r));
   };
   const expVitali = () => {
-    const h=[t('h_date'),t('h_type'),t('h_value'),t('h_unit')];
-    const r=vitali.map(v=>[fmt(v.data),tv(v.tipo),v.tipo==='Pressione'?`${v.massima??''}/${v.minima??''}`:v.valore,VITALI.find(x=>x.n===v.tipo)?.u||'']);
+    const h=[t('h_date'),t('h_type'),t('h_value'),t('h_unit'),t('h_notes')];
+    const r=vitali.map(v=>[fmt(v.data),tv(v.tipo),v.tipo==='Pressione'?`${v.massima??''}/${v.minima??''}`:v.valore,VITALI.find(x=>x.n===v.tipo)?.u||'',v.note||'']);
     dlCSV('dati_vitali.csv',mkCSV(h,r));
   };
   const expAll = () => { expVisite(); setTimeout(expAnalisi,350); setTimeout(expVitali,700); };
@@ -1140,11 +1147,14 @@ function VitaliView({vitali, onAdd, onDel}) {
       {dati.length>0?(
         <div className="space-y-2">
           {[...dati].reverse().map(v=>(
-            <div key={v.id} className="flex items-center bg-white rounded-xl px-4 py-3 shadow-sm border border-gray-50">
-              <span className="text-xs text-gray-400 flex-1">{v.df}</span>
-              <span className="font-black text-gray-800">{sel==='Pressione'?`${v.massima??'-'}/${v.minima??'-'}`:v.valore}</span>
-              <span className="text-xs text-gray-400 ml-1 mr-4">{ti?.u}</span>
-              <button onClick={()=>onDel(v.id)} className="text-gray-200 hover:text-red-400 transition-colors">🗑</button>
+            <div key={v.id} className="bg-white rounded-xl px-4 py-3 shadow-sm border border-gray-50">
+              <div className="flex items-center">
+                <span className="text-xs text-gray-400 flex-1">{v.df}</span>
+                <span className="font-black text-gray-800">{sel==='Pressione'?`${v.massima??'-'}/${v.minima??'-'}`:v.valore}</span>
+                <span className="text-xs text-gray-400 ml-1 mr-4">{ti?.u}</span>
+                <button onClick={()=>onDel(v.id)} className="text-gray-200 hover:text-red-400 transition-colors">🗑</button>
+              </div>
+              {v.note&&<p className="text-xs text-gray-400 mt-1 pr-8">{v.note}</p>}
             </div>
           ))}
         </div>
@@ -1301,7 +1311,7 @@ export default function App() {
       {modal==='nota'     && <NotaModal onSave={d=>add('ht-note',setNote,d)} onClose={()=>setModal(null)}/>}
       {modal==='terapia'  && <TerapiaModal onSave={d=>add('ht-terapie',setTerapie,d)} onClose={()=>setModal(null)}/>}
       {modal==='altro'    && <AltroModal onGo={id=>{setTab(id);setModal(null);}} onClose={()=>setModal(null)}/>}
-      {modal==='search'   && <SearchModal dati={{visite,analisi,note,ricette,terapie,allenamenti}} onGo={id=>{setTab(id);setModal(null);}} onClose={()=>setModal(null)}/>}
+      {modal==='search'   && <SearchModal dati={{visite,analisi,note,ricette,terapie,allenamenti,vitali}} onGo={id=>{setTab(id);setModal(null);}} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewN' && <ViewNotaModal n={modal.d} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewV' && <ViewVisitaModal v={modal.d} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewA' && <ViewAnalisiModal a={modal.d} onClose={()=>setModal(null)}/>}
