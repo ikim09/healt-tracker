@@ -299,19 +299,22 @@ function AnalisiModal({onSave, onClose}) {
   const [f, sf] = useState({data:'',note:'',params:[],allegati:[]});
   const [sp, setSp] = useState('');
   const [vp, setVp] = useState('');
-  const mkParam = (name,val) => {
+  const [dp, setDp] = useState(''); // data del singolo valore, se diversa da quella dell'analisi
+  const mkParam = (name,val,data) => {
     const def=PARAMS.find(p=>p.n===name);
-    return {n:name,u:def?.u||'',v:parseFloat(String(val).replace(',','.')),min:def?.min,max:def?.max};
+    const p={n:name,u:def?.u||'',v:parseFloat(String(val).replace(',','.')),min:def?.min,max:def?.max};
+    if (data && data!==f.data) p.d=data;   // salvata solo se davvero diversa
+    return p;
   };
   const pendOk = sp && vp && !isNaN(parseFloat(String(vp).replace(',','.')));
   const addP = () => {
     if (!pendOk) return;
-    sf(prev=>({...prev,params:[...prev.params.filter(p=>p.n!==sp),mkParam(sp,vp)]}));
-    setSp(''); setVp('');
+    sf(prev=>({...prev,params:[...prev.params.filter(p=>p.n!==sp),mkParam(sp,vp,dp)]}));
+    setSp(''); setVp(''); setDp('');
   };
   const ok = f.data && (f.params.length>0 || pendOk);
   const doSave = () => {
-    const params = pendOk ? [...f.params.filter(p=>p.n!==sp),mkParam(sp,vp)] : f.params;
+    const params = pendOk ? [...f.params.filter(p=>p.n!==sp),mkParam(sp,vp,dp)] : f.params;
     onSave({...f, params});
   };
   return (
@@ -334,11 +337,20 @@ function AnalisiModal({onSave, onClose}) {
             className="w-20 border border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-red-400 text-center"/>
           <button onClick={addP} className="w-11 h-11 rounded-xl bg-red-500 text-white font-bold text-xl hover:bg-red-600 flex items-center justify-center flex-shrink-0">+</button>
         </div>
+        <div className="flex items-center gap-2 mb-2">
+          <label className="text-xs text-gray-400 flex-shrink-0">{t('param_date_l')}</label>
+          <input type="date" value={dp} onChange={e=>setDp(e.target.value)}
+            className="flex-1 min-w-0 border border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-red-400"/>
+          {dp&&<button onClick={()=>setDp('')} className="text-gray-300 hover:text-red-400 font-bold text-lg px-1 flex-shrink-0">×</button>}
+        </div>
         {f.params.length>0&&(
           <div className="bg-gray-50 rounded-2xl p-3 space-y-1.5 max-h-40 overflow-y-auto">
             {f.params.map(p=>(
               <div key={p.n} className={`flex items-center justify-between px-3 py-2 rounded-xl ${isAbn(p)?'bg-red-50 border border-red-100':'bg-white'}`}>
-                <span className={`text-xs ${isAbn(p)?'text-red-600 font-semibold':'text-gray-700'}`}>{tv(p.n)}</span>
+                <span className="min-w-0 flex-1">
+                  <span className={`block text-xs truncate ${isAbn(p)?'text-red-600 font-semibold':'text-gray-700'}`}>{tv(p.n)}</span>
+                  {p.d&&<span className="block text-xs text-gray-300">{fmt(p.d)}</span>}
+                </span>
                 <div className="flex items-center gap-1.5">
                   <span className={`font-bold text-sm ${isAbn(p)?'text-red-600':'text-gray-700'}`}>{p.v}</span>
                   <span className="text-gray-400 text-xs">{p.u}</span>
@@ -683,6 +695,7 @@ function ViewAnalisiModal({a, onClose}) {
           <div key={p.n} className={`flex justify-between items-center p-3.5 rounded-2xl ${isAbn(p)?'bg-red-50 border border-red-100':'bg-gray-50'}`}>
             <div>
               <p className={`text-sm font-semibold ${isAbn(p)?'text-red-700':'text-gray-700'}`}>{tv(p.n)}</p>
+              {p.d&&<p className="text-xs text-blue-400 mt-0.5">📅 {fmt(p.d)}</p>}
               {refRange(p)!==null&&<p className="text-xs text-gray-400 mt-0.5">{t('ref')} {refRange(p)} {p.u}</p>}
             </div>
             <div className="flex items-center gap-2">
@@ -831,7 +844,7 @@ function ExportModal({visite,analisi,vitali,onClose}) {
   const expAnalisi = () => {
     const h=[t('h_date'),t('h_param'),t('h_value'),t('h_unit'),t('h_refmin'),t('h_refmax'),t('h_abn'),t('h_notes')];
     const r=[];
-    analisi.forEach(a=>(a.params||[]).forEach(p=>r.push([fmt(a.data),tv(p.n),p.v,p.u,p.min??'',p.max??'',isAbn(p)?t('yes'):t('no'),a.note||''])));
+    analisi.forEach(a=>(a.params||[]).forEach(p=>r.push([fmt(p.d||a.data),tv(p.n),p.v,p.u,p.min??'',p.max??'',isAbn(p)?t('yes'):t('no'),a.note||''])));
     dlCSV('analisi_sangue.csv',mkCSV(h,r));
   };
   const expVitali = () => {
@@ -1001,7 +1014,7 @@ function AndamentoAnalisi({analisi}) {
   const def = PARAMS.find(p=>p.n===attivo);
 
   const punti = analisi
-    .map(a=>{ const p=(a.params||[]).find(x=>x.n===attivo); return p?{data:a.data,df:fmt(a.data),val:p.v,fuori:isAbn(p)}:null; })
+    .map(a=>{ const p=(a.params||[]).find(x=>x.n===attivo); const d=p?.d||a.data; return p?{data:d,df:fmt(d),val:p.v,fuori:isAbn(p)}:null; })
     .filter(Boolean)
     .sort((x,y)=>x.data.localeCompare(y.data));
 
