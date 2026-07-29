@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea } from "recharts";
 import { t, tv, tTab, setLang, LANGS, locale } from "./i18n";
 import { PARAMS } from "./params";
 
@@ -990,6 +990,64 @@ function Visite({visite, onAdd, onDel, onView}) {
   );
 }
 
+function AndamentoAnalisi({analisi}) {
+  // Parametri presenti in almeno 2 analisi: solo per quelli ha senso un andamento
+  const conteggi = {};
+  analisi.forEach(a=>(a.params||[]).forEach(p=>{ conteggi[p.n]=(conteggi[p.n]||0)+1; }));
+  const disponibili = PARAMS.map(p=>p.n).filter(n=>conteggi[n]>=2);
+  const [sel, setSel] = useState(disponibili[0]||'');
+  if (disponibili.length===0) return null;
+  const attivo = disponibili.includes(sel) ? sel : disponibili[0];
+  const def = PARAMS.find(p=>p.n===attivo);
+
+  const punti = analisi
+    .map(a=>{ const p=(a.params||[]).find(x=>x.n===attivo); return p?{data:a.data,df:fmt(a.data),val:p.v,fuori:isAbn(p)}:null; })
+    .filter(Boolean)
+    .sort((x,y)=>x.data.localeCompare(y.data));
+
+  const primo = punti[0]?.val, ultimo = punti[punti.length-1]?.val;
+  const delta = ultimo - primo;
+  const segno = Math.abs(delta) < 0.001 ? '=' : (delta>0 ? '↑' : '↓');
+  const fuoriN = punti.filter(p=>p.fuori).length;
+  const lo = def?.min ?? null;
+  const hi = (def?.max===null||def?.max===undefined) ? null : def.max;
+
+  return (
+    <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50 mb-5">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-black text-gray-400 uppercase tracking-wider">{t('trend_title')}</p>
+        <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{background:fuoriN?'#fff1f2':'#f0fdf4',color:fuoriN?'#be123c':'#166534'}}>
+          {segno} {Math.abs(delta).toFixed(delta%1?1:0)} {def?.u}
+        </span>
+      </div>
+      <div className="flex gap-2 overflow-x-auto pb-2 mb-3" style={{scrollbarWidth:'none'}}>
+        {disponibili.map(n=>(
+          <button key={n} onClick={()=>setSel(n)} className="whitespace-nowrap text-xs px-3 py-1.5 rounded-full font-bold flex-shrink-0 border transition-all"
+            style={attivo===n?{background:'#be123c',color:'white',borderColor:'#be123c'}:{background:'white',color:'#6b7280',borderColor:'#e5e7eb'}}>
+            {tv(n)}
+          </button>
+        ))}
+      </div>
+      <ResponsiveContainer width="100%" height={160}>
+        <LineChart data={punti} margin={{top:5,right:10,left:-25,bottom:0}}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f5"/>
+          {lo!==null&&hi!==null&&<ReferenceArea y1={lo} y2={hi} fill="#22c55e" fillOpacity={0.07}/>}
+          <XAxis dataKey="df" tick={{fontSize:9,fill:'#9ca3af'}}/>
+          <YAxis tick={{fontSize:10,fill:'#9ca3af'}} width={45} domain={['auto','auto']}/>
+          <Tooltip formatter={v=>[`${v} ${def?.u}`,tv(attivo)]} contentStyle={{fontSize:11,borderRadius:16,border:'none',boxShadow:'0 8px 24px rgba(0,0,0,0.12)'}}/>
+          <Line type="monotone" dataKey="val" stroke="#be123c" strokeWidth={2.5}
+            dot={({cx,cy,payload})=><circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={4} fill={payload.fuori?'#ef4444':'#be123c'}/>}
+            activeDot={{r:6}}/>
+        </LineChart>
+      </ResponsiveContainer>
+      <p className="text-xs text-gray-400 mt-2">
+        {refRange(def)!==null ? `${t('ref')} ${refRange(def)} ${def.u}` : ''}
+        {fuoriN>0 && <span className="text-red-400"> · {t('trend_out',fuoriN)}</span>}
+      </p>
+    </div>
+  );
+}
+
 function AnalisiView({analisi, onAdd, onDel, onView}) {
   return (
     <div>
@@ -997,6 +1055,7 @@ function AnalisiView({analisi, onAdd, onDel, onView}) {
         <div><h2 className="text-lg font-black text-gray-800">{t('tests_title')}</h2><p className="text-xs text-gray-400">{t('tests_count',analisi.length)}</p></div>
         <button onClick={onAdd} className="text-white text-sm font-bold px-4 py-2.5 rounded-2xl shadow-md hover:opacity-90" style={{background:'linear-gradient(135deg,#be123c,#f43f5e)'}}>{t('new_f')}</button>
       </div>
+      {analisi.length>1 && <AndamentoAnalisi analisi={analisi}/>}
       {analisi.length===0?(
         <div className="text-center py-16"><p className="text-5xl mb-3">🩸</p><p className="text-gray-400">{t('no_tests')}</p></div>
       ):(
