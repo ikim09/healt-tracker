@@ -1100,7 +1100,13 @@ export default function App() {
 
   useEffect(()=>{
     (async()=>{
-      try { const r=await window.storage.get('ht-lang'); if(r?.value){ setLang(r.value); setLangState(r.value); } } catch(e){}
+      try {
+        const r=await window.storage.get('ht-lang');
+        // Prima apertura: usa la lingua del telefono, se è tra quelle supportate
+        const auto=(navigator.language||'it').slice(0,2).toLowerCase();
+        const scelta = r?.value || (LANGS.some(l=>l.code===auto) ? auto : 'it');
+        setLang(scelta); setLangState(scelta);
+      } catch(e){}
       try { const r=await window.storage.get('ht-promemoria'); if(r?.value==='1') setPromemoria(true); } catch(e){}
       for (const [k,fn] of [['ht-visite',setVisite],['ht-analisi',setAnalisi],['ht-allenamenti',setAllenamenti],['ht-ricette',setRicette],['ht-note',setNote],['ht-terapie',setTerapie]]) {
         try { const r=await window.storage.get(k); if(r) fn(JSON.parse(r.value)); } catch(e){}

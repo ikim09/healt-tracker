@@ -52,6 +52,20 @@ workflows:
           /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryUsageDescription string 'Consente di selezionare immagini dei referti da allegare a visite e analisi'" "$PLIST"
           echo "===== Chiavi privacy aggiunte a Info.plist ====="
 
+      - name: Declare supported languages
+        script: |
+          PLIST="ios/App/App/Info.plist"
+          # Lingua principale: italiano
+          /usr/libexec/PlistBuddy -c "Delete :CFBundleDevelopmentRegion" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleDevelopmentRegion string it" "$PLIST"
+          # Lingue in cui l'app è disponibile (compaiono sulla scheda App Store)
+          /usr/libexec/PlistBuddy -c "Delete :CFBundleLocalizations" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations array" "$PLIST"
+          for L in it en es fr de; do
+            /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations: string $L" "$PLIST"
+          done
+          echo "===== Lingue dichiarate: it en es fr de ====="
+
       - name: Set iPhone only and clean entitlements
         script: |
           PBXPROJ="ios/App/App.xcodeproj/project.pbxproj"
