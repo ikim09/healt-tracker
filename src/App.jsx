@@ -195,18 +195,37 @@ function InlineAttachments({allegati=[], recordId}) {
 }
 
 // --- Modals ---
-function VisitaModal({onSave, onClose}) {
-  const [f, sf] = useState({data:'',medico:'',spec:'Medicina generale',diagnosi:'',note:'',allegati:[]});
+function VisitaModal({iniziale, onSave, onClose}) {
+  const [f, sf] = useState(iniziale
+    ? {...iniziale, diagnosi:iniziale.diagnosi||'', note:iniziale.note||'', allegati:[]}
+    : {data:'',medico:'',spec:'Medicina generale',diagnosi:'',note:'',allegati:[]});
+  const [caricando, setCaricando] = useState(!!iniziale?.allegati?.length);
   const s = (k,v) => sf(p=>({...p,[k]:v}));
   const ok = f.data && f.medico.trim();
+
+  // In modifica: recupera gli allegati completi per poterli togliere o aggiungere
+  useEffect(()=>{
+    if (!iniziale?.allegati?.length) return;
+    (async()=>{
+      try {
+        const r = await window.storage.get(`ht-att-${iniziale.id}`);
+        if (r?.value) sf(p=>({...p, allegati: JSON.parse(r.value)}));
+      } catch(e){}
+      setCaricando(false);
+    })();
+  },[iniziale]);
+
   return (
-    <Modal title={t('new_visit')} onClose={onClose} onSave={ok?()=>onSave(f):null} saveLabel={ok?t('save_visit'):t('need_visit')}>
+    <Modal title={iniziale?t('edit_visit'):t('new_visit')} onClose={onClose} onSave={ok?()=>onSave(f):null}
+      saveLabel={ok?(iniziale?t('save_changes'):t('save_visit')):t('need_visit')}>
       <Inp lbl={t('date_l')} type="date" value={f.data} onChange={e=>s('data',e.target.value)}/>
       <Inp lbl={t('doctor_l')} placeholder={t('doctor_ph')} value={f.medico} onChange={e=>s('medico',e.target.value)}/>
       <Sel lbl={t('spec_l')} opts={SPEC} value={f.spec} onChange={e=>s('spec',e.target.value)}/>
       <Inp lbl={t('diag_l')} placeholder={t('diag_ph')} value={f.diagnosi} onChange={e=>s('diagnosi',e.target.value)}/>
       <Txt lbl={t('notes_l')} placeholder={t('visit_notes_ph')} value={f.note} onChange={e=>s('note',e.target.value)}/>
-      <AttachmentPicker files={f.allegati} onChange={v=>s('allegati',v)}/>
+      {caricando
+        ? <p className="text-xs text-gray-300 py-2">⏳ {t('loading')}</p>
+        : <AttachmentPicker files={f.allegati} onChange={v=>s('allegati',v)}/>}
     </Modal>
   );
 }
@@ -671,9 +690,10 @@ function NoteView({note, onAdd, onArch, onDel, onView}) {
   );
 }
 
-function ViewVisitaModal({v, onClose}) {
+function ViewVisitaModal({v, onEdit, onClose}) {
   return (
-    <Modal title={t('visit_of',fmt(v.data))} onClose={onClose}>
+    <Modal title={t('visit_of',fmt(v.data))} onClose={onClose}
+      onSave={onEdit?()=>onEdit(v):null} saveLabel={`✏️ ${t('edit')}`} saveBg="linear-gradient(135deg,#1e40af,#3b82f6)">
       <div className="grid grid-cols-2 gap-3 mb-3">
         <div className="bg-blue-50 rounded-2xl p-3"><p className="text-xs text-blue-400 font-bold uppercase tracking-wide">{t('doctor_v')}</p><p className="font-bold text-blue-800 text-sm mt-1">Dr. {v.medico}</p></div>
         <div className="bg-blue-50 rounded-2xl p-3"><p className="text-xs text-blue-400 font-bold uppercase tracking-wide">{t('spec_v')}</p><p className="font-bold text-blue-800 text-sm mt-1">{tv(v.spec)}</p></div>
@@ -1219,6 +1239,18 @@ export default function App() {
     setModal(null);
   };
 
+  const edit = async (key, setter, item) => {
+    const allFull = item.allegati||[];
+    const allegatiMeta = allFull.map(({id,name,type,size})=>({id,name,type,size}));
+    const record = {...item, allegati:allegatiMeta};
+    try {
+      if (allFull.length>0) await window.storage.set(`ht-att-${record.id}`, JSON.stringify(allFull));
+      else await window.storage.delete(`ht-att-${record.id}`);
+    } catch(e){}
+    setter(prev=>{ const u=prev.map(x=>x.id===record.id?record:x).sort((a,b)=>b.data.localeCompare(a.data)); sv(key,u); return u; });
+    setModal(null);
+  };
+
   const del = async (key, setter, id) => {
     try { await window.storage.delete(`ht-att-${id}`); } catch(e){}
     setter(prev=>{ const u=prev.filter(x=>x.id!==id); sv(key,u); return u; });
@@ -1304,6 +1336,7 @@ export default function App() {
       </div>
 
       {modal==='visita'   && <VisitaModal  onSave={d=>add('ht-visite',setVisite,d)}  onClose={()=>setModal(null)}/>}
+      {modal?.t==='editV' && <VisitaModal iniziale={modal.d} onSave={d=>edit('ht-visite',setVisite,d)} onClose={()=>setModal(null)}/>}
       {modal==='analisi'  && <AnalisiModal onSave={d=>add('ht-analisi',setAnalisi,d)} onClose={()=>setModal(null)}/>}
       {modal==='vitale'   && <VitaleModal  onSave={d=>add('ht-vitali',setVitali,d)}  onClose={()=>setModal(null)}/>}
       {modal==='allenamento' && <AllenamentoModal onSave={d=>add('ht-allenamenti',setAllenamenti,d)} onClose={()=>setModal(null)}/>}
@@ -1313,7 +1346,7 @@ export default function App() {
       {modal==='altro'    && <AltroModal onGo={id=>{setTab(id);setModal(null);}} onClose={()=>setModal(null)}/>}
       {modal==='search'   && <SearchModal dati={{visite,analisi,note,ricette,terapie,allenamenti,vitali}} onGo={id=>{setTab(id);setModal(null);}} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewN' && <ViewNotaModal n={modal.d} onClose={()=>setModal(null)}/>}
-      {modal?.t==='viewV' && <ViewVisitaModal v={modal.d} onClose={()=>setModal(null)}/>}
+      {modal?.t==='viewV' && <ViewVisitaModal v={modal.d} onEdit={v=>setModal({t:'editV',d:v})} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewA' && <ViewAnalisiModal a={modal.d} onClose={()=>setModal(null)}/>}
       {modal==='export'   && <ExportModal visite={visite} analisi={analisi} vitali={vitali} onClose={()=>setModal(null)}/>}
       {modal==='settings' && <SettingsModal lang={lang} onLang={changeLang} promemoria={promemoria} onPromemoria={cambiaPromemoria} onExport={()=>setModal('export')} onClose={()=>setModal(null)}/>}
