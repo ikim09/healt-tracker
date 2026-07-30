@@ -568,11 +568,11 @@ function RicetteView({ricette, onAdd, onToggle, onEdit, onDel}) {
   );
 }
 
-function TerapiaModal({iniziale, onSave, onClose}) {
+function TerapiaModal({iniziale, problemaId, problemi=[], onSave, onClose}) {
   const oggi = new Date().toISOString().slice(0,10);
   const [f, sf] = useState(iniziale
     ? {...iniziale, fine:iniziale.fine||'', dose:iniziale.dose||'', note:iniziale.note||''}
-    : {inizio:oggi,fine:'',farmaco:'',dose:'',frequenza:FREQ[0],note:''});
+    : {inizio:oggi,fine:'',farmaco:'',dose:'',frequenza:FREQ[0],note:'',problemaId:problemaId||null});
   const ok = f.inizio && f.farmaco.trim();
   return (
     <Modal title={iniziale?t('edit_therapy'):t('new_therapy')} onClose={onClose} onSave={ok?()=>onSave({...f,data:f.inizio}):null}
@@ -585,6 +585,16 @@ function TerapiaModal({iniziale, onSave, onClose}) {
         <Inp lbl={t('end_l')} type="date" value={f.fine} onChange={e=>sf(p=>({...p,fine:e.target.value}))}/>
       </div>
       <p className="text-xs text-gray-300 -mt-1 mb-3">{t('end_hint')}</p>
+      {iniziale&&problemi.length>0&&(
+        <div className="mb-3">
+          <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{t('linked_problem')}</label>
+          <select value={f.problemaId||''} onChange={e=>sf(p=>({...p,problemaId:e.target.value?Number(e.target.value):null}))}
+            className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-teal-400">
+            <option value="">{t('no_problem')}</option>
+            {problemi.map(p=><option key={p.id} value={p.id}>{p.titolo}</option>)}
+          </select>
+        </div>
+      )}
       <Txt lbl={t('notes_l')} placeholder={t('therapy_notes_ph')} value={f.note} onChange={e=>sf(p=>({...p,note:e.target.value}))}/>
     </Modal>
   );
@@ -612,32 +622,210 @@ function TerapiaCard({x, onEdit, onDel, conclusa}) {
   );
 }
 
-function TerapieView({terapie, onAdd, onEdit, onDel}) {
+function ProblemaModal({iniziale, onSave, onClose}) {
   const oggi = new Date().toISOString().slice(0,10);
-  const inCorso = terapie.filter(x=>!x.fine||x.fine>=oggi);
-  const concluse = terapie.filter(x=>x.fine&&x.fine<oggi);
+  const [f, sf] = useState(iniziale
+    ? {...iniziale, descrizione:iniziale.descrizione||'', allegati:[]}
+    : {data:oggi,titolo:'',descrizione:'',stato:'aperto',allegati:[],aggiornamenti:[],visite:[],analisi:[]});
+  const caricando = useAllegatiCompleti(iniziale, sf);
+  const ok = f.data && f.titolo.trim();
+  return (
+    <Modal title={iniziale?t('edit_problem'):t('new_problem')} onClose={onClose} onSave={ok?()=>onSave(f):null}
+      saveLabel={ok?(iniziale?t('save_changes'):t('save_problem')):t('need_problem')} saveBg="linear-gradient(135deg,#7c2d12,#ea580c)">
+      <Inp lbl={t('problem_l')} placeholder={t('problem_ph')} value={f.titolo} onChange={e=>sf(p=>({...p,titolo:e.target.value}))}/>
+      <Inp lbl={t('problem_start_l')} type="date" value={f.data} onChange={e=>sf(p=>({...p,data:e.target.value}))}/>
+      <Txt lbl={t('problem_desc_l')} placeholder={t('problem_desc_ph')} rows={4} value={f.descrizione} onChange={e=>sf(p=>({...p,descrizione:e.target.value}))}/>
+      {caricando
+        ? <p className="text-xs text-gray-300 py-2">⏳ {t('loading')}</p>
+        : <AttachmentPicker files={f.allegati} onChange={v=>sf(p=>({...p,allegati:v}))}/>}
+    </Modal>
+  );
+}
+
+function AggiornamentoModal({onSave, onClose}) {
+  const oggi = new Date().toISOString().slice(0,10);
+  const [f, sf] = useState({data:oggi,testo:''});
+  const ok = f.data && f.testo.trim();
+  return (
+    <Modal title={t('new_update')} onClose={onClose} onSave={ok?()=>onSave(f):null}
+      saveLabel={ok?t('save_update'):t('need_update')} saveBg="linear-gradient(135deg,#7c2d12,#ea580c)">
+      <Inp lbl={t('date_l')} type="date" value={f.data} onChange={e=>sf(p=>({...p,data:e.target.value}))}/>
+      <Txt lbl={t('update_l')} placeholder={t('update_ph')} rows={5} value={f.testo} onChange={e=>sf(p=>({...p,testo:e.target.value}))}/>
+    </Modal>
+  );
+}
+
+function CollegaModal({titolo, elementi, selezionati, onSave, onClose}) {
+  const [sel, setSel] = useState(new Set(selezionati||[]));
+  const flip = id => setSel(s=>{ const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
+  return (
+    <Modal title={titolo} onClose={onClose} onSave={()=>onSave([...sel])} saveLabel={t('link_save')} saveBg="linear-gradient(135deg,#7c2d12,#ea580c)">
+      {elementi.length===0
+        ? <p className="text-sm text-gray-300 text-center py-8">{t('link_empty')}</p>
+        : <div className="space-y-2">
+            {elementi.map(e=>(
+              <label key={e.id} className="flex items-center gap-3 bg-gray-50 rounded-xl px-3 py-3 cursor-pointer">
+                <input type="checkbox" checked={sel.has(e.id)} onChange={()=>flip(e.id)} className="w-4 h-4 accent-orange-500 flex-shrink-0"/>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm font-bold text-gray-800 truncate">{e.tit}</span>
+                  {e.sub&&<span className="block text-xs text-gray-400 truncate">{e.sub}</span>}
+                </span>
+                <span className="text-xs text-gray-300 flex-shrink-0">{fmt(e.data)}</span>
+              </label>
+            ))}
+          </div>}
+    </Modal>
+  );
+}
+
+function Sezione({icona, titolo, azione, children}) {
+  return (
+    <div className="mb-5">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-black text-gray-400 uppercase tracking-wider">{icona} {titolo}</p>
+        {azione}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function ProblemaDetail({p, terapie, visite, analisi, onBack, onEdit, onStato, onAddTer, onEditTer, onDelTer, onAddAgg, onDelAgg, onLinkV, onLinkA}) {
+  const mie = terapie.filter(x=>x.problemaId===p.id);
+  const oggi = new Date().toISOString().slice(0,10);
+  const vLink = visite.filter(v=>(p.visite||[]).includes(v.id));
+  const aLink = analisi.filter(a=>(p.analisi||[]).includes(a.id));
+  const agg = [...(p.aggiornamenti||[])].sort((x,y)=>String(y.data).localeCompare(String(x.data)));
+  const risolto = p.stato==='risolto';
+  const Piu = ({onClick}) => (
+    <button onClick={onClick} className="text-xs font-bold px-3 py-1.5 rounded-full" style={{background:'#fff7ed',color:'#c2410c'}}>+ {t('add_short')}</button>
+  );
+  return (
+    <div>
+      <button onClick={onBack} className="text-sm text-gray-400 font-bold mb-3">← {t('back')}</button>
+      <div className="rounded-2xl p-4 mb-5" style={{background:risolto?'#f9fafb':'linear-gradient(135deg,#fff7ed,#ffedd5)'}}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className={`text-lg font-black ${risolto?'text-gray-400':'text-gray-800'}`}>{p.titolo}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">{t('since')} {fmt(p.data)}</p>
+          </div>
+          <BtnModifica onClick={onEdit}/>
+        </div>
+        {p.descrizione&&<p className="text-sm text-gray-600 mt-2 whitespace-pre-wrap">{p.descrizione}</p>}
+        <button onClick={()=>onStato(risolto?'aperto':'risolto')}
+          className="mt-3 w-full py-2 rounded-xl text-xs font-bold"
+          style={risolto?{background:'#fff7ed',color:'#c2410c'}:{background:'#f0fdf4',color:'#166534'}}>
+          {risolto?`↩️ ${t('reopen')}`:`✅ ${t('mark_solved')}`}
+        </button>
+        <InlineAttachments allegati={p.allegati} recordId={p.id}/>
+      </div>
+
+      <Sezione icona="💊" titolo={t('therapies_title')} azione={<Piu onClick={onAddTer}/>}>
+        {mie.length===0
+          ? <p className="text-xs text-gray-300 py-2">{t('none_yet')}</p>
+          : <div className="space-y-2">{mie.map(x=>
+              <TerapiaCard key={x.id} x={x} onEdit={onEditTer} onDel={onDelTer} conclusa={x.fine&&x.fine<oggi}/>)}</div>}
+      </Sezione>
+
+      <Sezione icona="📝" titolo={t('updates_title')} azione={<Piu onClick={onAddAgg}/>}>
+        {agg.length===0
+          ? <p className="text-xs text-gray-300 py-2">{t('none_yet')}</p>
+          : <div className="space-y-2">
+              {agg.map(a=>(
+                <div key={a.id} className="bg-white rounded-2xl p-3 shadow-sm border border-gray-50 flex items-start gap-3" style={{borderLeft:'3px solid #ea580c'}}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-gray-400">{fmt(a.data)}</p>
+                    <p className="text-sm text-gray-700 whitespace-pre-wrap mt-0.5">{a.testo}</p>
+                  </div>
+                  <button onClick={()=>onDelAgg(a.id)} className="text-gray-200 hover:text-red-400 text-lg flex-shrink-0">🗑</button>
+                </div>
+              ))}
+            </div>}
+      </Sezione>
+
+      <Sezione icona="👨‍⚕️" titolo={t('visits_title')} azione={<Piu onClick={onLinkV}/>}>
+        {vLink.length===0
+          ? <p className="text-xs text-gray-300 py-2">{t('none_linked')}</p>
+          : <div className="space-y-2">{vLink.map(v=>(
+              <div key={v.id} className="bg-white rounded-2xl p-3 shadow-sm border border-gray-50 flex items-center gap-2">
+                <span className="text-lg">👨‍⚕️</span>
+                <span className="flex-1 min-w-0"><span className="block text-sm font-bold text-gray-800 truncate">Dr. {v.medico}</span>
+                <span className="block text-xs text-gray-400 truncate">{tv(v.spec)}</span></span>
+                <span className="text-xs text-gray-300">{fmt(v.data)}</span>
+              </div>))}</div>}
+      </Sezione>
+
+      <Sezione icona="🩸" titolo={t('tests_title')} azione={<Piu onClick={onLinkA}/>}>
+        {aLink.length===0
+          ? <p className="text-xs text-gray-300 py-2">{t('none_linked')}</p>
+          : <div className="space-y-2">{aLink.map(a=>(
+              <div key={a.id} className="bg-white rounded-2xl p-3 shadow-sm border border-gray-50 flex items-center gap-2">
+                <span className="text-lg">🩸</span>
+                <span className="flex-1 min-w-0"><span className="block text-sm font-bold text-gray-800">{t('params_n',(a.params||[]).length)}</span></span>
+                <span className="text-xs text-gray-300">{fmt(a.data)}</span>
+              </div>))}</div>}
+      </Sezione>
+    </div>
+  );
+}
+
+function DiarioView({problemi, terapie, onAdd, onOpen, onDel, onEditTer, onDelTer}) {
+  const orfane = terapie.filter(x=>!x.problemaId);
+  const aperti = problemi.filter(p=>p.stato!=='risolto');
+  const risolti = problemi.filter(p=>p.stato==='risolto');
+  const oggi = new Date().toISOString().slice(0,10);
+  const Card = ({p}) => {
+    const nTer = terapie.filter(x=>x.problemaId===p.id && (!x.fine||x.fine>=oggi)).length;
+    const nAgg = (p.aggiornamenti||[]).length;
+    const risolto = p.stato==='risolto';
+    return (
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50 cursor-pointer hover:shadow-md transition-all"
+        style={{borderLeft:`3px solid ${risolto?'#d1d5db':'#ea580c'}`}} onClick={()=>onOpen(p)}>
+        <div className="flex items-start justify-between">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-gray-400 mb-1">{t('since')} {fmt(p.data)}</p>
+            <p className={`font-bold ${risolto?'text-gray-400':'text-gray-800'}`}>{p.titolo}</p>
+            <div className="flex gap-2 mt-1.5 flex-wrap">
+              {nTer>0&&<span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{background:'#f0fdfa',color:'#0f766e'}}>💊 {nTer}</span>}
+              {nAgg>0&&<span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{background:'#fff7ed',color:'#c2410c'}}>📝 {nAgg}</span>}
+              {p.allegati?.length>0&&<span className="text-xs text-blue-400">📎 {p.allegati.length}</span>}
+            </div>
+            <p className="text-xs text-gray-300 mt-1">{t('tap_details')}</p>
+          </div>
+          <button onClick={e=>{e.stopPropagation();onDel(p.id)}} className="text-gray-200 hover:text-red-400 text-xl ml-3 flex-shrink-0">🗑</button>
+        </div>
+      </div>
+    );
+  };
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
-        <div><h2 className="text-lg font-black text-gray-800">{t('therapies_title')}</h2><p className="text-xs text-gray-400">{t('therapies_count',inCorso.length)}</p></div>
-        <button onClick={onAdd} className="text-white text-sm font-bold px-4 py-2.5 rounded-2xl shadow-md hover:opacity-90" style={{background:'linear-gradient(135deg,#0f766e,#14b8a6)'}}>{t('new_f')}</button>
+        <div><h2 className="text-lg font-black text-gray-800">{t('diary_title')}</h2><p className="text-xs text-gray-400">{t('diary_count',aperti.length)}</p></div>
+        <button onClick={onAdd} className="text-white text-sm font-bold px-4 py-2.5 rounded-2xl shadow-md hover:opacity-90" style={{background:'linear-gradient(135deg,#7c2d12,#ea580c)'}}>{t('new_m')}</button>
       </div>
-      {terapie.length===0?(
-        <div className="text-center py-16"><p className="text-5xl mb-3">💊</p><p className="text-gray-400 px-8">{t('no_therapies')}</p></div>
+      {problemi.length===0?(
+        <div className="text-center py-16"><p className="text-5xl mb-3">📔</p><p className="text-gray-400 px-8">{t('no_problems')}</p></div>
       ):(
         <div>
-          {inCorso.length>0&&(
+          {aperti.length>0&&(
             <div className="mb-6">
-              <p className="text-xs font-black uppercase tracking-wider mb-2" style={{color:'#0f766e'}}>{t('ongoing_s',inCorso.length)}</p>
-              <div className="space-y-3">{inCorso.map(x=><TerapiaCard key={x.id} x={x} onEdit={onEdit} onDel={onDel}/>)}</div>
+              <p className="text-xs font-black uppercase tracking-wider mb-2" style={{color:'#c2410c'}}>{t('open_s',aperti.length)}</p>
+              <div className="space-y-3">{aperti.map(p=><Card key={p.id} p={p}/>)}</div>
             </div>
           )}
-          {concluse.length>0&&(
+          {risolti.length>0&&(
             <div>
-              <p className="text-xs font-black text-gray-400 uppercase tracking-wider mb-2">{t('finished_s',concluse.length)}</p>
-              <div className="space-y-3">{concluse.map(x=><TerapiaCard key={x.id} x={x} onEdit={onEdit} onDel={onDel} conclusa/>)}</div>
+              <p className="text-xs font-black text-gray-400 uppercase tracking-wider mb-2">{t('solved_s',risolti.length)}</p>
+              <div className="space-y-3">{risolti.map(p=><Card key={p.id} p={p}/>)}</div>
             </div>
           )}
+        </div>
+      )}
+      {orfane.length>0&&(
+        <div className="mt-6">
+          <p className="text-xs font-black text-gray-400 uppercase tracking-wider mb-1">💊 {t('unlinked_therapies',orfane.length)}</p>
+          <p className="text-xs text-gray-300 mb-2">{t('unlinked_hint')}</p>
+          <div className="space-y-3">{orfane.map(x=><TerapiaCard key={x.id} x={x} onEdit={onEditTer} onDel={onDelTer}/>)}</div>
         </div>
       )}
     </div>
@@ -785,7 +973,9 @@ function SearchModal({dati, onGo, onClose}) {
     ...dati.ricette.filter(r=>has(r.descrizione,r.note))
       .map(r=>({id:'r'+r.id,tab:'ricette',i:'📋',tit:r.descrizione,sub:r.note,data:r.data})),
     ...dati.terapie.filter(x=>has(x.farmaco,x.dose,x.note))
-      .map(x=>({id:'t'+x.id,tab:'terapie',i:'💊',tit:x.farmaco,sub:x.dose,data:x.inizio})),
+      .map(x=>({id:'t'+x.id,tab:'diario',i:'💊',tit:x.farmaco,sub:x.dose,data:x.inizio})),
+    ...dati.problemi.filter(p=>has(p.titolo,p.descrizione,...(p.aggiornamenti||[]).map(a=>a.testo)))
+      .map(p=>({id:'p'+p.id,tab:'diario',i:'📔',tit:p.titolo,sub:p.descrizione,data:p.data})),
     ...dati.allenamenti.filter(a=>has(a.tipo,tv(a.tipo),a.note))
       .map(a=>({id:'s'+a.id,tab:'sport',i:'💪',tit:tv(a.tipo),sub:`${a.durata} min`,data:a.data})),
     ...dati.vitali.filter(v=>has(v.tipo,tv(v.tipo),v.note))
@@ -822,10 +1012,10 @@ function SearchModal({dati, onGo, onClose}) {
 
 function AltroModal({onGo, onClose}) {
   const voci = [
+    {id:'diario',i:'📔',c:'#fff7ed'},
     {id:'sport',i:'💪',c:'#f0fdf4'},
     {id:'ricette',i:'📋',c:'#ecfeff'},
     {id:'note',i:'📝',c:'#fffbeb'},
-    {id:'terapie',i:'💊',c:'#f0fdfa'},
   ];
   return (
     <Modal title={t('more_title')} onClose={onClose}>
@@ -1232,6 +1422,8 @@ export default function App() {
   const [ricette, setRicette] = useState([]);
   const [note, setNote] = useState([]);
   const [terapie, setTerapie] = useState([]);
+  const [problemi, setProblemi] = useState([]);
+  const [problemaAperto, setProblemaAperto] = useState(null);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [lang, setLangState] = useState('it');
@@ -1247,7 +1439,7 @@ export default function App() {
         setLang(scelta); setLangState(scelta);
       } catch(e){}
       try { const r=await window.storage.get('ht-promemoria'); if(r?.value==='1') setPromemoria(true); } catch(e){}
-      for (const [k,fn] of [['ht-visite',setVisite],['ht-analisi',setAnalisi],['ht-allenamenti',setAllenamenti],['ht-ricette',setRicette],['ht-note',setNote],['ht-terapie',setTerapie]]) {
+      for (const [k,fn] of [['ht-visite',setVisite],['ht-analisi',setAnalisi],['ht-allenamenti',setAllenamenti],['ht-ricette',setRicette],['ht-note',setNote],['ht-terapie',setTerapie],['ht-problemi',setProblemi]]) {
         try { const r=await window.storage.get(k); if(r) fn(JSON.parse(r.value)); } catch(e){}
       }
       try {
@@ -1323,8 +1515,17 @@ export default function App() {
     return r.n>0 ? t('notif_set',r.n) : t('notif_none');
   };
 
+  // Aggiorna un problema del diario (usato per stato, aggiornamenti e collegamenti)
+  const patchProblema = (id, fn) => setProblemi(prev=>{
+    const u = prev.map(p=>p.id===id?fn(p):p);
+    sv('ht-problemi',u);
+    const nuovo = u.find(p=>p.id===id);
+    if (nuovo) setProblemaAperto(nuovo);
+    return u;
+  });
+
   const TABS = [{id:'home',i:'🏠'},{id:'visite',i:'👨‍⚕️'},{id:'analisi',i:'🩸'},{id:'vitali',i:'💓'},{id:'altro',i:'⋯'}];
-  const SEZ_ALTRO = ['sport','ricette','note','terapie'];
+  const SEZ_ALTRO = ['diario','sport','ricette','note'];
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-screen" style={{background:'#f8faff'}}>
@@ -1357,7 +1558,23 @@ export default function App() {
           {tab==='sport'   && <AllenamentiView allenamenti={allenamenti} onAdd={()=>setModal('allenamento')} onEdit={a=>setModal({t:'editS',d:a})} onDel={id=>del('ht-allenamenti',setAllenamenti,id)}/>}
           {tab==='ricette' && <RicetteView ricette={ricette} onAdd={()=>setModal('ricetta')} onToggle={toggleRicetta} onEdit={r=>setModal({t:'editR',d:r})} onDel={id=>del('ht-ricette',setRicette,id)}/>}
           {tab==='note'    && <NoteView note={note} onAdd={()=>setModal('nota')} onArch={toggleNota} onDel={id=>del('ht-note',setNote,id)} onView={n=>setModal({t:'viewN',d:n})}/>}
-          {tab==='terapie' && <TerapieView terapie={terapie} onAdd={()=>setModal('terapia')} onEdit={x=>setModal({t:'editT',d:x})} onDel={id=>del('ht-terapie',setTerapie,id)}/>}
+          {tab==='diario' && (problemaAperto
+            ? <ProblemaDetail
+                p={problemaAperto} terapie={terapie} visite={visite} analisi={analisi}
+                onBack={()=>setProblemaAperto(null)}
+                onEdit={()=>setModal({t:'editP',d:problemaAperto})}
+                onStato={s=>patchProblema(problemaAperto.id,p=>({...p,stato:s}))}
+                onAddTer={()=>setModal({t:'newTer',d:problemaAperto.id})}
+                onEditTer={x=>setModal({t:'editT',d:x})}
+                onDelTer={id=>del('ht-terapie',setTerapie,id)}
+                onAddAgg={()=>setModal('aggiornamento')}
+                onDelAgg={idA=>patchProblema(problemaAperto.id,p=>({...p,aggiornamenti:(p.aggiornamenti||[]).filter(a=>a.id!==idA)}))}
+                onLinkV={()=>setModal('linkV')}
+                onLinkA={()=>setModal('linkA')}
+              />
+            : <DiarioView problemi={problemi} terapie={terapie} onAdd={()=>setModal('problema')}
+                onOpen={p=>setProblemaAperto(p)} onDel={id=>del('ht-problemi',setProblemi,id)}
+                onEditTer={x=>setModal({t:'editT',d:x})} onDelTer={id=>del('ht-terapie',setTerapie,id)}/>)}
         </div>
       </div>
 
@@ -1381,9 +1598,19 @@ export default function App() {
       {modal==='allenamento' && <AllenamentoModal onSave={d=>add('ht-allenamenti',setAllenamenti,d)} onClose={()=>setModal(null)}/>}
       {modal==='ricetta'  && <RicettaModal onSave={d=>add('ht-ricette',setRicette,d)} onClose={()=>setModal(null)}/>}
       {modal==='nota'     && <NotaModal onSave={d=>add('ht-note',setNote,d)} onClose={()=>setModal(null)}/>}
-      {modal==='terapia'  && <TerapiaModal onSave={d=>add('ht-terapie',setTerapie,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='newTer' && <TerapiaModal problemaId={modal.d} onSave={d=>add('ht-terapie',setTerapie,d)} onClose={()=>setModal(null)}/>}
+      {modal==='problema' && <ProblemaModal onSave={d=>add('ht-problemi',setProblemi,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='editP' && <ProblemaModal iniziale={modal.d} onSave={d=>{edit('ht-problemi',setProblemi,d); setProblemaAperto({...problemaAperto,...d});}} onClose={()=>setModal(null)}/>}
+      {modal==='aggiornamento' && <AggiornamentoModal onClose={()=>setModal(null)}
+        onSave={d=>{ patchProblema(problemaAperto.id,p=>({...p,aggiornamenti:[...(p.aggiornamenti||[]),{...d,id:Date.now()}]})); setModal(null); }}/>}
+      {modal==='linkV' && <CollegaModal titolo={`👨‍⚕️ ${t('link_visits')}`} selezionati={problemaAperto?.visite}
+        elementi={visite.map(v=>({id:v.id,tit:`Dr. ${v.medico}`,sub:tv(v.spec),data:v.data}))}
+        onSave={ids=>{ patchProblema(problemaAperto.id,p=>({...p,visite:ids})); setModal(null); }} onClose={()=>setModal(null)}/>}
+      {modal==='linkA' && <CollegaModal titolo={`🩸 ${t('link_tests')}`} selezionati={problemaAperto?.analisi}
+        elementi={analisi.map(a=>({id:a.id,tit:t('test_of',fmt(a.data)),sub:t('params_n',(a.params||[]).length),data:a.data}))}
+        onSave={ids=>{ patchProblema(problemaAperto.id,p=>({...p,analisi:ids})); setModal(null); }} onClose={()=>setModal(null)}/>}
       {modal==='altro'    && <AltroModal onGo={id=>{setTab(id);setModal(null);}} onClose={()=>setModal(null)}/>}
-      {modal==='search'   && <SearchModal dati={{visite,analisi,note,ricette,terapie,allenamenti,vitali}} onGo={id=>{setTab(id);setModal(null);}} onClose={()=>setModal(null)}/>}
+      {modal==='search'   && <SearchModal dati={{visite,analisi,note,ricette,terapie,allenamenti,vitali,problemi}} onGo={id=>{setTab(id);setProblemaAperto(null);setModal(null);}} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewN' && <ViewNotaModal n={modal.d} onEdit={n=>setModal({t:'editN',d:n})} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewV' && <ViewVisitaModal v={modal.d} onEdit={v=>setModal({t:'editV',d:v})} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewA' && <ViewAnalisiModal a={modal.d} onEdit={a=>setModal({t:'editA',d:a})} onClose={()=>setModal(null)}/>}
@@ -1392,7 +1619,7 @@ export default function App() {
       {modal?.t==='editS'   && <AllenamentoModal iniziale={modal.d} onSave={d=>edit('ht-allenamenti',setAllenamenti,d)} onClose={()=>setModal(null)}/>}
       {modal?.t==='editR'   && <RicettaModal iniziale={modal.d} onSave={d=>edit('ht-ricette',setRicette,d)} onClose={()=>setModal(null)}/>}
       {modal?.t==='editN'   && <NotaModal iniziale={modal.d} onSave={d=>edit('ht-note',setNote,d)} onClose={()=>setModal(null)}/>}
-      {modal?.t==='editT'   && <TerapiaModal iniziale={modal.d} onSave={d=>edit('ht-terapie',setTerapie,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='editT'   && <TerapiaModal iniziale={modal.d} problemi={problemi} onSave={d=>edit('ht-terapie',setTerapie,d)} onClose={()=>setModal(null)}/>}
       {modal==='export'   && <ExportModal visite={visite} analisi={analisi} vitali={vitali} onClose={()=>setModal(null)}/>}
       {modal==='settings' && <SettingsModal lang={lang} onLang={changeLang} promemoria={promemoria} onPromemoria={cambiaPromemoria} onExport={()=>setModal('export')} onClose={()=>setModal(null)}/>}
     </div>
