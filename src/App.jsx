@@ -195,15 +195,9 @@ function InlineAttachments({allegati=[], recordId}) {
 }
 
 // --- Modals ---
-function VisitaModal({iniziale, onSave, onClose}) {
-  const [f, sf] = useState(iniziale
-    ? {...iniziale, diagnosi:iniziale.diagnosi||'', note:iniziale.note||'', allegati:[]}
-    : {data:'',medico:'',spec:'Medicina generale',diagnosi:'',note:'',allegati:[]});
+// In modifica recupera gli allegati completi, così si possono togliere o aggiungere
+function useAllegatiCompleti(iniziale, sf) {
   const [caricando, setCaricando] = useState(!!iniziale?.allegati?.length);
-  const s = (k,v) => sf(p=>({...p,[k]:v}));
-  const ok = f.data && f.medico.trim();
-
-  // In modifica: recupera gli allegati completi per poterli togliere o aggiungere
   useEffect(()=>{
     if (!iniziale?.allegati?.length) return;
     (async()=>{
@@ -214,7 +208,21 @@ function VisitaModal({iniziale, onSave, onClose}) {
       setCaricando(false);
     })();
   },[iniziale]);
+  return caricando;
+}
 
+const BtnModifica = ({onClick}) => (
+  <button onClick={e=>{e.stopPropagation();onClick();}} title={t('edit')}
+    className="w-9 h-9 rounded-xl flex items-center justify-center text-base bg-gray-50 hover:bg-gray-100 active:scale-95 transition-all">✏️</button>
+);
+
+function VisitaModal({iniziale, onSave, onClose}) {
+  const [f, sf] = useState(iniziale
+    ? {...iniziale, diagnosi:iniziale.diagnosi||'', note:iniziale.note||'', allegati:[]}
+    : {data:'',medico:'',spec:'Medicina generale',diagnosi:'',note:'',allegati:[]});
+  const caricando = useAllegatiCompleti(iniziale, sf);
+  const s = (k,v) => sf(p=>({...p,[k]:v}));
+  const ok = f.data && f.medico.trim();
   return (
     <Modal title={iniziale?t('edit_visit'):t('new_visit')} onClose={onClose} onSave={ok?()=>onSave(f):null}
       saveLabel={ok?(iniziale?t('save_changes'):t('save_visit')):t('need_visit')}>
@@ -315,8 +323,11 @@ function ScansionaReferto({onFound}) {
   );
 }
 
-function AnalisiModal({onSave, onClose}) {
-  const [f, sf] = useState({data:'',note:'',params:[],allegati:[]});
+function AnalisiModal({iniziale, onSave, onClose}) {
+  const [f, sf] = useState(iniziale
+    ? {...iniziale, note:iniziale.note||'', params:[...(iniziale.params||[])], allegati:[]}
+    : {data:'',note:'',params:[],allegati:[]});
+  const caricando = useAllegatiCompleti(iniziale, sf);
   const [sp, setSp] = useState('');
   const [vp, setVp] = useState('');
   const [dp, setDp] = useState(''); // data del singolo valore, se diversa da quella dell'analisi
@@ -338,8 +349,8 @@ function AnalisiModal({onSave, onClose}) {
     onSave({...f, params});
   };
   return (
-    <Modal title={t('new_test')} onClose={onClose} onSave={ok?doSave:null}
-      saveLabel={ok?t('save_test'):t('need_test')} saveBg="linear-gradient(135deg,#be123c,#f43f5e)">
+    <Modal title={iniziale?t('edit_test'):t('new_test')} onClose={onClose} onSave={ok?doSave:null}
+      saveLabel={ok?(iniziale?t('save_changes'):t('save_test')):t('need_test')} saveBg="linear-gradient(135deg,#be123c,#f43f5e)">
       <Inp lbl={t('date_l')} type="date" value={f.data} onChange={e=>sf(p=>({...p,data:e.target.value}))}/>
       <ScansionaReferto onFound={ps=>sf(prev=>{
         const nomi=new Set(ps.map(p=>p.n));
@@ -382,23 +393,30 @@ function AnalisiModal({onSave, onClose}) {
           </div>
         )}
       </div>
-      <AttachmentPicker files={f.allegati} onChange={v=>sf(p=>({...p,allegati:v}))}/>
+      {caricando
+        ? <p className="text-xs text-gray-300 py-2">⏳ {t('loading')}</p>
+        : <AttachmentPicker files={f.allegati} onChange={v=>sf(p=>({...p,allegati:v}))}/>}
     </Modal>
   );
 }
 
-function VitaleModal({onSave, onClose}) {
-  const [f, sf] = useState({data:'',tipo:VITALI[0].n,valore:'',massima:'',minima:'',note:''});
+function VitaleModal({iniziale, onSave, onClose}) {
+  const [f, sf] = useState(iniziale
+    ? {data:iniziale.data,tipo:iniziale.tipo,valore:iniziale.valore??'',massima:iniziale.massima??'',minima:iniziale.minima??'',note:iniziale.note||''}
+    : {data:'',tipo:VITALI[0].n,valore:'',massima:'',minima:'',note:''});
   const ti = VITALI.find(v=>v.n===f.tipo);
   const isP = f.tipo==='Pressione';
   const pf = s => parseFloat(String(s).replace(',','.'));
   const num = pf(f.valore), nMax = pf(f.massima), nMin = pf(f.minima);
-  const ok = f.data && (isP ? (f.massima && f.minima && !isNaN(nMax) && !isNaN(nMin)) : (f.valore && !isNaN(num)));
-  const doSave = () => onSave(isP
-    ? {data:f.data,tipo:f.tipo,massima:nMax,minima:nMin,note:f.note}
-    : {data:f.data,tipo:f.tipo,valore:num,note:f.note});
+  const ok = f.data && (isP ? (f.massima!=='' && f.minima!=='' && !isNaN(nMax) && !isNaN(nMin)) : (f.valore!=='' && !isNaN(num)));
+  const doSave = () => onSave({
+    ...(iniziale?{id:iniziale.id}:{}),
+    ...(isP ? {data:f.data,tipo:f.tipo,massima:nMax,minima:nMin,note:f.note}
+            : {data:f.data,tipo:f.tipo,valore:num,note:f.note}),
+  });
   return (
-    <Modal title={t('new_vital')} onClose={onClose} onSave={ok?doSave:null} saveLabel={t('save')} saveBg="linear-gradient(135deg,#7e22ce,#a855f7)">
+    <Modal title={iniziale?t('edit_vital'):t('new_vital')} onClose={onClose} onSave={ok?doSave:null}
+      saveLabel={iniziale?t('save_changes'):t('save')} saveBg="linear-gradient(135deg,#7e22ce,#a855f7)">
       <Inp lbl={t('date_l')} type="date" value={f.data} onChange={e=>sf(p=>({...p,data:e.target.value}))}/>
       <Sel lbl={t('type_l')} opts={VITALI.map(v=>v.n)} value={f.tipo} onChange={e=>sf(p=>({...p,tipo:e.target.value}))}/>
       {isP ? (
@@ -414,13 +432,15 @@ function VitaleModal({onSave, onClose}) {
   );
 }
 
-function AllenamentoModal({onSave, onClose}) {
-  const [f, sf] = useState({data:'',tipo:SPORT[0].n,durata:'',note:''});
+function AllenamentoModal({iniziale, onSave, onClose}) {
+  const [f, sf] = useState(iniziale
+    ? {...iniziale, durata:String(iniziale.durata??''), note:iniziale.note||''}
+    : {data:'',tipo:SPORT[0].n,durata:'',note:''});
   const num = parseFloat(String(f.durata).replace(',','.'));
   const ok = f.data && f.durata && !isNaN(num) && num>0;
   return (
-    <Modal title={t('new_workout')} onClose={onClose} onSave={ok?()=>onSave({...f,durata:Math.round(num)}):null}
-      saveLabel={ok?t('save_workout'):t('need_workout')} saveBg="linear-gradient(135deg,#15803d,#22c55e)">
+    <Modal title={iniziale?t('edit_workout'):t('new_workout')} onClose={onClose} onSave={ok?()=>onSave({...f,durata:Math.round(num)}):null}
+      saveLabel={ok?(iniziale?t('save_changes'):t('save_workout')):t('need_workout')} saveBg="linear-gradient(135deg,#15803d,#22c55e)">
       <Inp lbl={t('date_l')} type="date" value={f.data} onChange={e=>sf(p=>({...p,data:e.target.value}))}/>
       <Sel lbl={t('activity_l')} opts={SPORT.map(s=>s.n)} value={f.tipo} onChange={e=>sf(p=>({...p,tipo:e.target.value}))}/>
       <Inp lbl={t('duration_l')} type="text" inputMode="numeric" placeholder={t('duration_ph')} value={f.durata} onChange={e=>sf(p=>({...p,durata:e.target.value}))}/>
@@ -429,7 +449,7 @@ function AllenamentoModal({onSave, onClose}) {
   );
 }
 
-function AllenamentiView({allenamenti, onAdd, onDel}) {
+function AllenamentiView({allenamenti, onAdd, onEdit, onDel}) {
   const d = new Date();
   const lun = new Date(d); lun.setDate(d.getDate()-((d.getDay()+6)%7));
   const lunStr = `${lun.getFullYear()}-${String(lun.getMonth()+1).padStart(2,'0')}-${String(lun.getDate()).padStart(2,'0')}`;
@@ -461,7 +481,10 @@ function AllenamentiView({allenamenti, onAdd, onDel}) {
                 <p className="text-xs text-gray-400 mt-0.5">{fmt(a.data)}</p>
                 {a.note&&<p className="text-sm text-gray-500 mt-0.5 truncate">{a.note}</p>}
               </div>
-              <button onClick={()=>onDel(a.id)} className="text-gray-200 hover:text-red-400 transition-colors text-xl flex-shrink-0">🗑</button>
+              <div className="flex flex-col items-center gap-2 flex-shrink-0">
+                <BtnModifica onClick={()=>onEdit(a)}/>
+                <button onClick={()=>onDel(a.id)} className="text-gray-200 hover:text-red-400 transition-colors text-xl">🗑</button>
+              </div>
             </div>
           ))}
         </div>
@@ -470,21 +493,26 @@ function AllenamentiView({allenamenti, onAdd, onDel}) {
   );
 }
 
-function RicettaModal({onSave, onClose}) {
-  const [f, sf] = useState({data:'',descrizione:'',note:'',usata:false,allegati:[]});
+function RicettaModal({iniziale, onSave, onClose}) {
+  const [f, sf] = useState(iniziale
+    ? {...iniziale, note:iniziale.note||'', allegati:[]}
+    : {data:'',descrizione:'',note:'',usata:false,allegati:[]});
+  const caricando = useAllegatiCompleti(iniziale, sf);
   const ok = f.data && f.descrizione.trim();
   return (
-    <Modal title={t('new_rx')} onClose={onClose} onSave={ok?()=>onSave(f):null}
-      saveLabel={ok?t('save_rx'):t('need_rx')} saveBg="linear-gradient(135deg,#0e7490,#06b6d4)">
+    <Modal title={iniziale?t('edit_rx'):t('new_rx')} onClose={onClose} onSave={ok?()=>onSave(f):null}
+      saveLabel={ok?(iniziale?t('save_changes'):t('save_rx')):t('need_rx')} saveBg="linear-gradient(135deg,#0e7490,#06b6d4)">
       <Inp lbl={t('date_l')} type="date" value={f.data} onChange={e=>sf(p=>({...p,data:e.target.value}))}/>
       <Inp lbl={t('desc_l')} placeholder={t('desc_ph')} value={f.descrizione} onChange={e=>sf(p=>({...p,descrizione:e.target.value}))}/>
       <Txt lbl={t('notes_l')} placeholder={t('rx_notes_ph')} value={f.note} onChange={e=>sf(p=>({...p,note:e.target.value}))}/>
-      <AttachmentPicker files={f.allegati} onChange={v=>sf(p=>({...p,allegati:v}))}/>
+      {caricando
+        ? <p className="text-xs text-gray-300 py-2">⏳ {t('loading')}</p>
+        : <AttachmentPicker files={f.allegati} onChange={v=>sf(p=>({...p,allegati:v}))}/>}
     </Modal>
   );
 }
 
-function RicettaCard({r, onToggle, onDel}) {
+function RicettaCard({r, onToggle, onEdit, onDel}) {
   return (
     <div className={`bg-white rounded-2xl p-4 shadow-sm border border-gray-50 ${r.usata?'opacity-70':''}`}>
       <div className="flex items-start justify-between">
@@ -501,6 +529,7 @@ function RicettaCard({r, onToggle, onDel}) {
           <button onClick={()=>onToggle(r.id)} title={r.usata?t('mark_unused'):t('mark_used')}
             className="w-9 h-9 rounded-xl flex items-center justify-center text-base active:scale-95 transition-transform"
             style={{background:r.usata?'#f3f4f6':'#f0fdfa'}}>{r.usata?'↩️':'✔️'}</button>
+          <BtnModifica onClick={()=>onEdit(r)}/>
           <button onClick={()=>onDel(r.id)} className="text-gray-200 hover:text-red-400 transition-colors text-xl">🗑</button>
         </div>
       </div>
@@ -508,7 +537,7 @@ function RicettaCard({r, onToggle, onDel}) {
   );
 }
 
-function RicetteView({ricette, onAdd, onToggle, onDel}) {
+function RicetteView({ricette, onAdd, onToggle, onEdit, onDel}) {
   const daUsare = ricette.filter(r=>!r.usata);
   const usate = ricette.filter(r=>r.usata);
   return (
@@ -524,13 +553,13 @@ function RicetteView({ricette, onAdd, onToggle, onDel}) {
           {daUsare.length>0&&(
             <div className="mb-6">
               <p className="text-xs font-black uppercase tracking-wider mb-2" style={{color:'#0e7490'}}>{t('to_use_s',daUsare.length)}</p>
-              <div className="space-y-3">{daUsare.map(r=><RicettaCard key={r.id} r={r} onToggle={onToggle} onDel={onDel}/>)}</div>
+              <div className="space-y-3">{daUsare.map(r=><RicettaCard key={r.id} r={r} onToggle={onToggle} onEdit={onEdit} onDel={onDel}/>)}</div>
             </div>
           )}
           {usate.length>0&&(
             <div>
               <p className="text-xs font-black text-gray-400 uppercase tracking-wider mb-2">{t('used_s',usate.length)}</p>
-              <div className="space-y-3">{usate.map(r=><RicettaCard key={r.id} r={r} onToggle={onToggle} onDel={onDel}/>)}</div>
+              <div className="space-y-3">{usate.map(r=><RicettaCard key={r.id} r={r} onToggle={onToggle} onEdit={onEdit} onDel={onDel}/>)}</div>
             </div>
           )}
         </div>
@@ -539,13 +568,15 @@ function RicetteView({ricette, onAdd, onToggle, onDel}) {
   );
 }
 
-function TerapiaModal({onSave, onClose}) {
+function TerapiaModal({iniziale, onSave, onClose}) {
   const oggi = new Date().toISOString().slice(0,10);
-  const [f, sf] = useState({inizio:oggi,fine:'',farmaco:'',dose:'',frequenza:FREQ[0],note:''});
+  const [f, sf] = useState(iniziale
+    ? {...iniziale, fine:iniziale.fine||'', dose:iniziale.dose||'', note:iniziale.note||''}
+    : {inizio:oggi,fine:'',farmaco:'',dose:'',frequenza:FREQ[0],note:''});
   const ok = f.inizio && f.farmaco.trim();
   return (
-    <Modal title={t('new_therapy')} onClose={onClose} onSave={ok?()=>onSave({...f,data:f.inizio}):null}
-      saveLabel={ok?t('save_therapy'):t('need_therapy')} saveBg="linear-gradient(135deg,#0f766e,#14b8a6)">
+    <Modal title={iniziale?t('edit_therapy'):t('new_therapy')} onClose={onClose} onSave={ok?()=>onSave({...f,data:f.inizio}):null}
+      saveLabel={ok?(iniziale?t('save_changes'):t('save_therapy')):t('need_therapy')} saveBg="linear-gradient(135deg,#0f766e,#14b8a6)">
       <Inp lbl={t('drug_l')} placeholder={t('drug_ph')} value={f.farmaco} onChange={e=>sf(p=>({...p,farmaco:e.target.value}))}/>
       <Inp lbl={t('dose_l')} placeholder={t('dose_ph')} value={f.dose} onChange={e=>sf(p=>({...p,dose:e.target.value}))}/>
       <Sel lbl={t('freq_l')} opts={FREQ} value={f.frequenza} onChange={e=>sf(p=>({...p,frequenza:e.target.value}))}/>
@@ -559,7 +590,7 @@ function TerapiaModal({onSave, onClose}) {
   );
 }
 
-function TerapiaCard({x, onDel, conclusa}) {
+function TerapiaCard({x, onEdit, onDel, conclusa}) {
   return (
     <div className={`bg-white rounded-2xl p-4 shadow-sm border border-gray-50 flex items-start gap-3 ${conclusa?'opacity-70':''}`}
       style={{borderLeft:`3px solid ${conclusa?'#d1d5db':'#14b8a6'}`}}>
@@ -573,12 +604,15 @@ function TerapiaCard({x, onDel, conclusa}) {
         <p className="text-xs text-gray-400 mt-0.5">{fmt(x.inizio)}{x.fine?` → ${fmt(x.fine)}`:` → ${t('ongoing')}`}</p>
         {x.note&&<p className="text-sm text-gray-500 mt-1">{x.note}</p>}
       </div>
-      <button onClick={()=>onDel(x.id)} className="text-gray-200 hover:text-red-400 transition-colors text-xl flex-shrink-0">🗑</button>
+      <div className="flex flex-col items-center gap-2 flex-shrink-0">
+        <BtnModifica onClick={()=>onEdit(x)}/>
+        <button onClick={()=>onDel(x.id)} className="text-gray-200 hover:text-red-400 transition-colors text-xl">🗑</button>
+      </div>
     </div>
   );
 }
 
-function TerapieView({terapie, onAdd, onDel}) {
+function TerapieView({terapie, onAdd, onEdit, onDel}) {
   const oggi = new Date().toISOString().slice(0,10);
   const inCorso = terapie.filter(x=>!x.fine||x.fine>=oggi);
   const concluse = terapie.filter(x=>x.fine&&x.fine<oggi);
@@ -595,13 +629,13 @@ function TerapieView({terapie, onAdd, onDel}) {
           {inCorso.length>0&&(
             <div className="mb-6">
               <p className="text-xs font-black uppercase tracking-wider mb-2" style={{color:'#0f766e'}}>{t('ongoing_s',inCorso.length)}</p>
-              <div className="space-y-3">{inCorso.map(x=><TerapiaCard key={x.id} x={x} onDel={onDel}/>)}</div>
+              <div className="space-y-3">{inCorso.map(x=><TerapiaCard key={x.id} x={x} onEdit={onEdit} onDel={onDel}/>)}</div>
             </div>
           )}
           {concluse.length>0&&(
             <div>
               <p className="text-xs font-black text-gray-400 uppercase tracking-wider mb-2">{t('finished_s',concluse.length)}</p>
-              <div className="space-y-3">{concluse.map(x=><TerapiaCard key={x.id} x={x} onDel={onDel} conclusa/>)}</div>
+              <div className="space-y-3">{concluse.map(x=><TerapiaCard key={x.id} x={x} onEdit={onEdit} onDel={onDel} conclusa/>)}</div>
             </div>
           )}
         </div>
@@ -610,13 +644,13 @@ function TerapieView({terapie, onAdd, onDel}) {
   );
 }
 
-function NotaModal({onSave, onClose}) {
+function NotaModal({iniziale, onSave, onClose}) {
   const oggi = new Date().toISOString().slice(0,10);
-  const [f, sf] = useState({data:oggi,titolo:'',testo:''});
+  const [f, sf] = useState(iniziale ? {...iniziale, testo:iniziale.testo||''} : {data:oggi,titolo:'',testo:''});
   const ok = f.data && f.titolo.trim();
   return (
-    <Modal title={t('new_note')} onClose={onClose} onSave={ok?()=>onSave(f):null}
-      saveLabel={ok?t('save_note'):t('need_note')} saveBg="linear-gradient(135deg,#b45309,#f59e0b)">
+    <Modal title={iniziale?t('edit_note'):t('new_note')} onClose={onClose} onSave={ok?()=>onSave(f):null}
+      saveLabel={ok?(iniziale?t('save_changes'):t('save_note')):t('need_note')} saveBg="linear-gradient(135deg,#b45309,#f59e0b)">
       <Inp lbl={t('date_l')} type="date" value={f.data} onChange={e=>sf(p=>({...p,data:e.target.value}))}/>
       <Inp lbl={t('title_l')} placeholder={t('title_ph')} value={f.titolo} onChange={e=>sf(p=>({...p,titolo:e.target.value}))}/>
       <Txt lbl={t('text_l')} placeholder={t('text_ph')} rows={6} value={f.testo} onChange={e=>sf(p=>({...p,testo:e.target.value}))}/>
@@ -624,9 +658,10 @@ function NotaModal({onSave, onClose}) {
   );
 }
 
-function ViewNotaModal({n, onClose}) {
+function ViewNotaModal({n, onEdit, onClose}) {
   return (
-    <Modal title={`📝 ${n.titolo}`} onClose={onClose}>
+    <Modal title={`📝 ${n.titolo}`} onClose={onClose}
+      onSave={onEdit?()=>onEdit(n):null} saveLabel={`✏️ ${t('edit')}`} saveBg="linear-gradient(135deg,#b45309,#f59e0b)">
       <p className="text-xs text-gray-400 mb-3">{fmt(n.data)}</p>
       {n.testo
         ? <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{n.testo}</p>
@@ -705,10 +740,11 @@ function ViewVisitaModal({v, onEdit, onClose}) {
   );
 }
 
-function ViewAnalisiModal({a, onClose}) {
+function ViewAnalisiModal({a, onEdit, onClose}) {
   const params=a.params||[], totAbn=params.filter(isAbn).length;
   return (
-    <Modal title={t('test_of',fmt(a.data))} onClose={onClose}>
+    <Modal title={t('test_of',fmt(a.data))} onClose={onClose}
+      onSave={onEdit?()=>onEdit(a):null} saveLabel={`✏️ ${t('edit')}`} saveBg="linear-gradient(135deg,#be123c,#f43f5e)">
       {a.note&&<div className="bg-gray-50 rounded-xl p-3 text-sm text-gray-600 mb-4 italic">"{a.note}"</div>}
       <div className="grid grid-cols-2 gap-3 mb-4">
         <div className="bg-blue-50 rounded-2xl p-4 text-center"><p className="text-3xl font-bold text-blue-700">{params.length}</p><p className="text-xs text-blue-400 font-semibold mt-0.5">{t('params_l')}</p></div>
@@ -1125,7 +1161,7 @@ function AnalisiView({analisi, onAdd, onDel, onView}) {
   );
 }
 
-function VitaliView({vitali, onAdd, onDel}) {
+function VitaliView({vitali, onAdd, onEdit, onDel}) {
   const [sel, setSel] = useState('Peso');
   const ti = VITALI.find(v=>v.n===sel);
   const dati = vitali.filter(v=>v.tipo===sel).slice().sort((a,b)=>a.data.localeCompare(b.data)).map(v=>({...v,df:fmt(v.data),val:parseFloat(v.valore)}));
@@ -1171,7 +1207,8 @@ function VitaliView({vitali, onAdd, onDel}) {
               <div className="flex items-center">
                 <span className="text-xs text-gray-400 flex-1">{v.df}</span>
                 <span className="font-black text-gray-800">{sel==='Pressione'?`${v.massima??'-'}/${v.minima??'-'}`:v.valore}</span>
-                <span className="text-xs text-gray-400 ml-1 mr-4">{ti?.u}</span>
+                <span className="text-xs text-gray-400 ml-1 mr-3">{ti?.u}</span>
+                <button onClick={()=>onEdit(v)} title={t('edit')} className="text-gray-300 hover:text-blue-500 transition-colors mr-2">✏️</button>
                 <button onClick={()=>onDel(v.id)} className="text-gray-200 hover:text-red-400 transition-colors">🗑</button>
               </div>
               {v.note&&<p className="text-xs text-gray-400 mt-1 pr-8">{v.note}</p>}
@@ -1240,14 +1277,16 @@ export default function App() {
   };
 
   const edit = async (key, setter, item) => {
-    const allFull = item.allegati||[];
-    const allegatiMeta = allFull.map(({id,name,type,size})=>({id,name,type,size}));
-    const record = {...item, allegati:allegatiMeta};
-    try {
-      if (allFull.length>0) await window.storage.set(`ht-att-${record.id}`, JSON.stringify(allFull));
-      else await window.storage.delete(`ht-att-${record.id}`);
-    } catch(e){}
-    setter(prev=>{ const u=prev.map(x=>x.id===record.id?record:x).sort((a,b)=>b.data.localeCompare(a.data)); sv(key,u); return u; });
+    let record = {...item};
+    if (Array.isArray(item.allegati)) {           // solo le sezioni che prevedono allegati
+      const allFull = item.allegati;
+      record.allegati = allFull.map(({id,name,type,size})=>({id,name,type,size}));
+      try {
+        if (allFull.length>0) await window.storage.set(`ht-att-${record.id}`, JSON.stringify(allFull));
+        else await window.storage.delete(`ht-att-${record.id}`);
+      } catch(e){}
+    }
+    setter(prev=>{ const u=prev.map(x=>x.id===record.id?record:x).sort((a,b)=>String(b.data).localeCompare(String(a.data))); sv(key,u); return u; });
     setModal(null);
   };
 
@@ -1314,11 +1353,11 @@ export default function App() {
           {tab==='home'    && <Dashboard visite={visite} analisi={analisi} vitali={vitali}/>}
           {tab==='visite'  && <Visite visite={visite} onAdd={()=>setModal('visita')} onDel={id=>del('ht-visite',setVisite,id)} onView={v=>setModal({t:'viewV',d:v})}/>}
           {tab==='analisi' && <AnalisiView analisi={analisi} onAdd={()=>setModal('analisi')} onDel={id=>del('ht-analisi',setAnalisi,id)} onView={a=>setModal({t:'viewA',d:a})}/>}
-          {tab==='vitali'  && <VitaliView vitali={vitali} onAdd={()=>setModal('vitale')} onDel={id=>del('ht-vitali',setVitali,id)}/>}
-          {tab==='sport'   && <AllenamentiView allenamenti={allenamenti} onAdd={()=>setModal('allenamento')} onDel={id=>del('ht-allenamenti',setAllenamenti,id)}/>}
-          {tab==='ricette' && <RicetteView ricette={ricette} onAdd={()=>setModal('ricetta')} onToggle={toggleRicetta} onDel={id=>del('ht-ricette',setRicette,id)}/>}
+          {tab==='vitali'  && <VitaliView vitali={vitali} onAdd={()=>setModal('vitale')} onEdit={v=>setModal({t:'editVit',d:v})} onDel={id=>del('ht-vitali',setVitali,id)}/>}
+          {tab==='sport'   && <AllenamentiView allenamenti={allenamenti} onAdd={()=>setModal('allenamento')} onEdit={a=>setModal({t:'editS',d:a})} onDel={id=>del('ht-allenamenti',setAllenamenti,id)}/>}
+          {tab==='ricette' && <RicetteView ricette={ricette} onAdd={()=>setModal('ricetta')} onToggle={toggleRicetta} onEdit={r=>setModal({t:'editR',d:r})} onDel={id=>del('ht-ricette',setRicette,id)}/>}
           {tab==='note'    && <NoteView note={note} onAdd={()=>setModal('nota')} onArch={toggleNota} onDel={id=>del('ht-note',setNote,id)} onView={n=>setModal({t:'viewN',d:n})}/>}
-          {tab==='terapie' && <TerapieView terapie={terapie} onAdd={()=>setModal('terapia')} onDel={id=>del('ht-terapie',setTerapie,id)}/>}
+          {tab==='terapie' && <TerapieView terapie={terapie} onAdd={()=>setModal('terapia')} onEdit={x=>setModal({t:'editT',d:x})} onDel={id=>del('ht-terapie',setTerapie,id)}/>}
         </div>
       </div>
 
@@ -1345,9 +1384,15 @@ export default function App() {
       {modal==='terapia'  && <TerapiaModal onSave={d=>add('ht-terapie',setTerapie,d)} onClose={()=>setModal(null)}/>}
       {modal==='altro'    && <AltroModal onGo={id=>{setTab(id);setModal(null);}} onClose={()=>setModal(null)}/>}
       {modal==='search'   && <SearchModal dati={{visite,analisi,note,ricette,terapie,allenamenti,vitali}} onGo={id=>{setTab(id);setModal(null);}} onClose={()=>setModal(null)}/>}
-      {modal?.t==='viewN' && <ViewNotaModal n={modal.d} onClose={()=>setModal(null)}/>}
+      {modal?.t==='viewN' && <ViewNotaModal n={modal.d} onEdit={n=>setModal({t:'editN',d:n})} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewV' && <ViewVisitaModal v={modal.d} onEdit={v=>setModal({t:'editV',d:v})} onClose={()=>setModal(null)}/>}
-      {modal?.t==='viewA' && <ViewAnalisiModal a={modal.d} onClose={()=>setModal(null)}/>}
+      {modal?.t==='viewA' && <ViewAnalisiModal a={modal.d} onEdit={a=>setModal({t:'editA',d:a})} onClose={()=>setModal(null)}/>}
+      {modal?.t==='editA'   && <AnalisiModal iniziale={modal.d} onSave={d=>edit('ht-analisi',setAnalisi,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='editVit' && <VitaleModal iniziale={modal.d} onSave={d=>edit('ht-vitali',setVitali,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='editS'   && <AllenamentoModal iniziale={modal.d} onSave={d=>edit('ht-allenamenti',setAllenamenti,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='editR'   && <RicettaModal iniziale={modal.d} onSave={d=>edit('ht-ricette',setRicette,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='editN'   && <NotaModal iniziale={modal.d} onSave={d=>edit('ht-note',setNote,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='editT'   && <TerapiaModal iniziale={modal.d} onSave={d=>edit('ht-terapie',setTerapie,d)} onClose={()=>setModal(null)}/>}
       {modal==='export'   && <ExportModal visite={visite} analisi={analisi} vitali={vitali} onClose={()=>setModal(null)}/>}
       {modal==='settings' && <SettingsModal lang={lang} onLang={changeLang} promemoria={promemoria} onPromemoria={cambiaPromemoria} onExport={()=>setModal('export')} onClose={()=>setModal(null)}/>}
     </div>
