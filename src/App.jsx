@@ -48,6 +48,7 @@ const readFile = f => new Promise((res,rej) => { const r=new FileReader(); r.onl
 const mkCSV = (headers,rows) => { const esc=v=>`"${String(v??'').replace(/"/g,'""')}"`;return[headers,...rows].map(r=>r.map(esc).join(',')).join('\r\n'); };
 const dlCSV = (name,content) => { const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(content);a.download=name;document.body.appendChild(a);a.click();document.body.removeChild(a); };
 const fmtSize = b => b>1024*1024?`${(b/1024/1024).toFixed(1)} MB`:`${Math.round(b/1024)} KB`;
+const eur = n => (n==null||n==='') ? '' : new Intl.NumberFormat(locale(),{style:'currency',currency:'EUR'}).format(n);
 const fileIcon = t => t.startsWith('image/')?'🖼️':t==='application/pdf'?'📄':'📎';
 
 // Base UI
@@ -218,18 +219,23 @@ const BtnModifica = ({onClick}) => (
 
 function VisitaModal({iniziale, onSave, onClose}) {
   const [f, sf] = useState(iniziale
-    ? {...iniziale, diagnosi:iniziale.diagnosi||'', note:iniziale.note||'', allegati:[]}
-    : {data:'',medico:'',spec:'Medicina generale',diagnosi:'',note:'',allegati:[]});
+    ? {...iniziale, diagnosi:iniziale.diagnosi||'', note:iniziale.note||'', costo:iniziale.costo??'', allegati:[]}
+    : {data:'',medico:'',spec:'Medicina generale',diagnosi:'',costo:'',note:'',allegati:[]});
   const caricando = useAllegatiCompleti(iniziale, sf);
   const s = (k,v) => sf(p=>({...p,[k]:v}));
   const ok = f.data && f.medico.trim();
+  const salva = () => {
+    const c = parseFloat(String(f.costo).replace(',','.'));
+    onSave({...f, costo: (f.costo!=='' && !isNaN(c)) ? c : null});
+  };
   return (
-    <Modal title={iniziale?t('edit_visit'):t('new_visit')} onClose={onClose} onSave={ok?()=>onSave(f):null}
+    <Modal title={iniziale?t('edit_visit'):t('new_visit')} onClose={onClose} onSave={ok?salva:null}
       saveLabel={ok?(iniziale?t('save_changes'):t('save_visit')):t('need_visit')}>
       <Inp lbl={t('date_l')} type="date" value={f.data} onChange={e=>s('data',e.target.value)}/>
       <Inp lbl={t('doctor_l')} placeholder={t('doctor_ph')} value={f.medico} onChange={e=>s('medico',e.target.value)}/>
       <Sel lbl={t('spec_l')} opts={SPEC} value={f.spec} onChange={e=>s('spec',e.target.value)}/>
       <Inp lbl={t('diag_l')} placeholder={t('diag_ph')} value={f.diagnosi} onChange={e=>s('diagnosi',e.target.value)}/>
+      <Inp lbl={t('cost_l')} type="text" inputMode="decimal" placeholder={t('cost_ph')} value={f.costo} onChange={e=>s('costo',e.target.value)}/>
       <Txt lbl={t('notes_l')} placeholder={t('visit_notes_ph')} value={f.note} onChange={e=>s('note',e.target.value)}/>
       {caricando
         ? <p className="text-xs text-gray-300 py-2">⏳ {t('loading')}</p>
@@ -921,6 +927,10 @@ function ViewVisitaModal({v, onEdit, onClose}) {
         <div className="bg-blue-50 rounded-2xl p-3"><p className="text-xs text-blue-400 font-bold uppercase tracking-wide">{t('doctor_v')}</p><p className="font-bold text-blue-800 text-sm mt-1">Dr. {v.medico}</p></div>
         <div className="bg-blue-50 rounded-2xl p-3"><p className="text-xs text-blue-400 font-bold uppercase tracking-wide">{t('spec_v')}</p><p className="font-bold text-blue-800 text-sm mt-1">{tv(v.spec)}</p></div>
       </div>
+      {v.costo!=null&&v.costo!==''&&<div className="rounded-2xl p-3 mb-3 flex items-center justify-between" style={{background:'#f0fdf4'}}>
+        <p className="text-xs font-bold uppercase tracking-wide" style={{color:'#166534'}}>{t('cost_v')}</p>
+        <p className="font-black" style={{color:'#166534'}}>{eur(v.costo)}</p>
+      </div>}
       {v.diagnosi&&<div className="bg-gray-50 rounded-2xl p-3 mb-3"><p className="text-xs text-gray-400 font-bold uppercase tracking-wide mb-1">{t('diag_l')}</p><p className="text-sm text-gray-700">{v.diagnosi}</p></div>}
       {v.note&&<div className="bg-gray-50 rounded-2xl p-3 mb-2"><p className="text-xs text-gray-400 font-bold uppercase tracking-wide mb-1">{t('notes_l')}</p><p className="text-sm text-gray-600 italic">{v.note}</p></div>}
       <InlineAttachments allegati={v.allegati} recordId={v.id}/>
@@ -1090,8 +1100,8 @@ function SettingsModal({lang, onLang, promemoria, onPromemoria, onExport, onClos
 
 function ExportModal({visite,analisi,vitali,onClose}) {
   const expVisite = () => {
-    const h=[t('h_date'),t('h_doctor'),t('h_spec'),t('h_diag'),t('h_notes'),t('h_nfiles')];
-    const r=visite.map(v=>[fmt(v.data),v.medico,tv(v.spec),v.diagnosi||'',v.note||'',(v.allegati||[]).length]);
+    const h=[t('h_date'),t('h_doctor'),t('h_spec'),t('h_diag'),t('h_cost'),t('h_notes'),t('h_nfiles')];
+    const r=visite.map(v=>[fmt(v.data),v.medico,tv(v.spec),v.diagnosi||'',v.costo??'',v.note||'',(v.allegati||[]).length]);
     dlCSV('visite_mediche.csv',mkCSV(h,r));
   };
   const expAnalisi = () => {
@@ -1207,6 +1217,7 @@ function VisitaCard({v, onDel, onView, futura}) {
           <div className="flex items-center gap-2 mb-1.5 flex-wrap">
             <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{background:'#eff6ff',color:'#1e40af'}}>{tv(v.spec)}</span>
             <span className="text-xs text-gray-400">{fmt(v.data)}</span>
+            {v.costo!=null&&v.costo!==''&&<span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{background:'#f0fdf4',color:'#166534'}}>{eur(v.costo)}</span>}
             {v.allegati?.length>0&&<span className="text-xs text-blue-400 font-medium">📎 {v.allegati.length}</span>}
           </div>
           <p className="font-bold text-gray-800">Dr. {v.medico}</p>
@@ -1224,12 +1235,19 @@ function Visite({visite, onAdd, onDel, onView}) {
   const oggi = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const daFare = visite.filter(v=>v.data>=oggi).slice().sort((a,b)=>a.data.localeCompare(b.data));
   const fatte = visite.filter(v=>v.data<oggi);
+  const speso = visite.reduce((s,v)=>s+(Number(v.costo)||0),0);
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
         <div><h2 className="text-lg font-black text-gray-800">{t('visits_title')}</h2><p className="text-xs text-gray-400">{t('visits_count',visite.length)}</p></div>
         <button onClick={onAdd} className="text-white text-sm font-bold px-4 py-2.5 rounded-2xl shadow-md hover:opacity-90" style={{background:'linear-gradient(135deg,#1e40af,#3b82f6)'}}>{t('new_f')}</button>
       </div>
+      {speso>0&&(
+        <div className="rounded-2xl p-3 mb-4 flex items-center justify-between" style={{background:'#f0fdf4'}}>
+          <p className="text-xs font-bold uppercase tracking-wide" style={{color:'#166534'}}>{t('total_spent')}</p>
+          <p className="font-black" style={{color:'#166534'}}>{eur(speso)}</p>
+        </div>
+      )}
       {visite.length===0?(
         <div className="text-center py-16"><p className="text-5xl mb-3">👨‍⚕️</p><p className="text-gray-400">{t('no_visits')}</p></div>
       ):(
