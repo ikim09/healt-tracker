@@ -3,7 +3,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { t, tv, tTab, setLang, LANGS, locale } from "./i18n";
 import { PARAMS } from "./params";
 
-const APP_VERSION = "1.0.2";
+const APP_VERSION = "1.0.3";
 
 const SPEC = ["Medicina generale","Cardiologia","Dermatologia","Endocrinologia","Gastroenterologia","Ginecologia","Neurologia","Oftalmologia","Ortopedia","Otorinolaringoiatria","Pneumologia","Reumatologia","Urologia","Altro"];
 const VITALI = [

@@ -11,7 +11,7 @@ workflows:
       cocoapods: default
       vars:
         BUNDLE_ID: com.ikim.healthtracker
-        APP_VERSION: "1.0.2"
+        APP_VERSION: "1.0.3"
     scripts:
       - name: Install dependencies
         script: npm install
