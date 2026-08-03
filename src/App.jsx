@@ -35,6 +35,10 @@ const SPORT = [
 ];
 const sportIcon = t => SPORT.find(s=>s.n===t)?.i || "💪";
 const FREQ = ["1 volta al giorno","2 volte al giorno","3 volte al giorno","Ogni 8 ore","Ogni 12 ore","A giorni alterni","1 volta a settimana","Al bisogno"];
+const TIPI_ALLERGIA = ["Farmaco","Alimento","Polline","Acaro","Pelo di animale","Puntura di insetto","Lattice","Metallo","Altro"];
+const GRAVITA = ["Lieve","Moderata","Grave"];
+const allergiaIcon = t => ({Farmaco:'💊',Alimento:'🍽️',Polline:'🌾',Acaro:'🛏️',"Pelo di animale":'🐕',"Puntura di insetto":'🐝',Lattice:'🧤',Metallo:'⚙️'}[t] || '⚠️');
+const coloreGravita = g => g==='Grave' ? '#dc2626' : g==='Moderata' ? '#f59e0b' : '#65a30d';
 
 const fmt = d => { if(!d) return '-'; const p=d.split('-'); return `${p[2]}/${p[1]}/${p[0]}`; };
 const isAbn = p => p.min!==undefined&&(p.v<p.min||(p.max!==null&&p.max!==undefined&&p.v>p.max));
@@ -46,7 +50,32 @@ const refRange = p => {
 };
 const readFile = f => new Promise((res,rej) => { const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(f); });
 const mkCSV = (headers,rows) => { const esc=v=>`"${String(v??'').replace(/"/g,'""')}"`;return[headers,...rows].map(r=>r.map(esc).join(',')).join('\r\n'); };
-const dlCSV = (name,content) => { const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(content);a.download=name;document.body.appendChild(a);a.click();document.body.removeChild(a); };
+// Su iPhone il download dei file non esiste: si usa il pannello di condivisione di iOS.
+// Il BOM iniziale serve a far leggere correttamente gli accenti a Excel.
+const csvBlob = content => new Blob(['\uFEFF'+content], {type:'text/csv;charset=utf-8'});
+const scaricaBlob = (blob,name) => {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download=name;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+};
+const salvaCSV = async (name,content) => {
+  const blob = csvBlob(content);
+  try {
+    const f = new File([blob], name, {type:'text/csv'});
+    if (navigator.canShare?.({files:[f]})) { await navigator.share({files:[f], title:name}); return true; }
+  } catch(e) { if (e?.name==='AbortError') return true; }
+  scaricaBlob(blob,name);
+  return true;
+};
+const salvaCSVMulti = async elenco => {
+  try {
+    const fs = elenco.map(x=>new File([csvBlob(x.content)], x.name, {type:'text/csv'}));
+    if (navigator.canShare?.({files:fs})) { await navigator.share({files:fs}); return; }
+  } catch(e) { if (e?.name==='AbortError') return; }
+  for (const x of elenco) { scaricaBlob(csvBlob(x.content), x.name); await new Promise(r=>setTimeout(r,400)); }
+};
 const fmtSize = b => b>1024*1024?`${(b/1024/1024).toFixed(1)} MB`:`${Math.round(b/1024)} KB`;
 const eur = n => (n==null||n==='') ? '' : new Intl.NumberFormat(locale(),{style:'currency',currency:'EUR'}).format(n);
 const fileIcon = t => t.startsWith('image/')?'🖼️':t==='application/pdf'?'📄':'📎';
@@ -92,7 +121,7 @@ function Modal({title,onClose,onSave,saveLabel="Salva",saveBg="linear-gradient(1
 // --- Attachment Components ---
 function AttachmentPicker({files, onChange}) {
   const ref = useRef(null);
-  const MAX = 4;
+  const MAX = 20;
   const handleChange = async e => {
     const picked = Array.from(e.target.files).slice(0, MAX-files.length);
     const added = [];
@@ -112,7 +141,7 @@ function AttachmentPicker({files, onChange}) {
       </div>
       <input ref={ref} type="file" accept="image/*,application/pdf" multiple className="hidden" onChange={handleChange}/>
       {files.length>0 ? (
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 max-h-64 overflow-y-auto">
           {files.map(f=>(
             <div key={f.id} className="flex items-center gap-2 bg-blue-50 rounded-xl px-3 py-2.5">
               <span className="text-lg leading-none">{fileIcon(f.type)}</span>
@@ -133,27 +162,121 @@ function AttachmentPicker({files, onChange}) {
   );
 }
 
+// Converte un data URL (base64) nei byte del file
+const dataUrlToBytes = url => {
+  const bin = atob(String(url).split(',')[1] || '');
+  const arr = new Uint8Array(bin.length);
+  for (let i=0; i<bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr;
+};
+
+// Legge il PDF e ne disegna le pagine dentro l'app, una alla volta
+function PdfViewer({file}) {
+  const [pagine, setPagine] = useState([]);
+  const [tot, setTot] = useState(0);
+  const [stato, setStato] = useState('load');
+  useEffect(()=>{
+    let vivo = true;
+    (async()=>{
+      try {
+        const pdfjs = await import('pdfjs-dist');
+        const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
+        pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+        const doc = await pdfjs.getDocument({data:dataUrlToBytes(file.data)}).promise;
+        if (!vivo) return;
+        const n = Math.min(doc.numPages, 40);
+        setTot(doc.numPages);
+        for (let i=1; i<=n; i++) {
+          const page = await doc.getPage(i);
+          const viewport = page.getViewport({scale:1.7});
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width; canvas.height = viewport.height;
+          await page.render({canvasContext:canvas.getContext('2d'), viewport}).promise;
+          if (!vivo) return;
+          const img = canvas.toDataURL('image/jpeg', 0.85);
+          setPagine(prev=>[...prev, img]);
+          if (i===1) setStato('ok');
+        }
+        if (vivo) setStato('ok');
+      } catch(e) { console.error(e); if (vivo) setStato('err'); }
+    })();
+    return ()=>{ vivo=false; };
+  },[file]);
+
+  if (stato==='err') return (
+    <div className="text-center py-10">
+      <p className="text-5xl mb-3">📄</p>
+      <p className="text-sm text-gray-500">{t('pdf_error')}</p>
+    </div>
+  );
+  return (
+    <div>
+      {stato==='load'&&<div className="text-center py-10"><p className="text-4xl mb-2">⏳</p><p className="text-sm text-gray-400">{t('pdf_loading')}</p></div>}
+      <div className="space-y-3">
+        {pagine.map((p,i)=>(
+          <div key={i}>
+            <img src={p} alt={`${i+1}`} className="w-full rounded-xl shadow-sm border border-gray-100"/>
+            <p className="text-xs text-gray-300 text-center mt-1">{i+1} / {tot}</p>
+          </div>
+        ))}
+      </div>
+      {tot>40&&<p className="text-xs text-gray-400 text-center mt-3">{t('pdf_limit')}</p>}
+    </div>
+  );
+}
+
 function AttachmentViewer({file, onClose}) {
   const isImg = file.type.startsWith('image/');
+  const isPdf = file.type==='application/pdf';
+  const [zoom, setZoom] = useState(false);
+
+  const apriFuori = async () => {
+    // Prova la condivisione nativa (su iPhone apre "Salva su File", Mail, WhatsApp...)
+    try {
+      const blob = await (await fetch(file.data)).blob();
+      const f = new File([blob], file.name, {type:file.type||'application/octet-stream'});
+      if (navigator.canShare?.({files:[f]})) { await navigator.share({files:[f], title:file.name}); return; }
+    } catch(e){ /* condivisione non disponibile */ }
+    const a = document.createElement('a');
+    a.href = file.data; a.download = file.name;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  };
+
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center" style={{background:'rgba(0,0,0,0.7)'}}>
-      <div className="bg-white rounded-t-3xl shadow-2xl w-full max-w-lg" style={{maxHeight:'90vh',display:'flex',flexDirection:'column',paddingBottom:'env(safe-area-inset-bottom)'}}>
+      <div className="bg-white rounded-t-3xl shadow-2xl w-full max-w-lg" style={{height:'92vh',display:'flex',flexDirection:'column',paddingBottom:'env(safe-area-inset-bottom)'}}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xl">{fileIcon(file.type)}</span>
-            <h3 className="font-bold text-gray-800 text-sm truncate">{file.name}</h3>
+            <div className="min-w-0">
+              <h3 className="font-bold text-gray-800 text-sm truncate">{file.name}</h3>
+              <p className="text-xs text-gray-300">{fmtSize(file.size)}</p>
+            </div>
           </div>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 font-bold text-lg flex-shrink-0 ml-2">×</button>
         </div>
-        <div className="overflow-y-auto p-5 flex-1">
-          {isImg
-            ? <img src={file.data} alt={file.name} className="w-full rounded-2xl object-contain max-h-72"/>
-            : <div className="text-center py-10"><p className="text-6xl mb-3">{fileIcon(file.type)}</p><p className="font-semibold text-gray-700">{file.name}</p><p className="text-xs text-gray-400 mt-1">{fmtSize(file.size)}</p></div>}
+
+        <div className="overflow-auto p-4 flex-1" style={{background:isImg||isPdf?'#f8faff':'white'}}>
+          {isImg && (
+            <img src={file.data} alt={file.name} onClick={()=>setZoom(z=>!z)}
+              className="rounded-xl shadow-sm cursor-zoom-in"
+              style={zoom?{width:'auto',maxWidth:'none'}:{width:'100%',height:'auto'}}/>
+          )}
+          {isPdf && <PdfViewer file={file}/>}
+          {!isImg&&!isPdf&&(
+            <div className="text-center py-12">
+              <p className="text-6xl mb-3">{fileIcon(file.type)}</p>
+              <p className="font-semibold text-gray-700">{file.name}</p>
+              <p className="text-xs text-gray-400 mt-1">{t('preview_none')}</p>
+            </div>
+          )}
+          {isImg&&<p className="text-xs text-gray-300 text-center mt-2">{zoom?t('img_zoom_out'):t('img_zoom_in')}</p>}
         </div>
+
         <div className="px-5 pb-6 pt-3 border-t border-gray-50">
-          <a href={file.data} download={file.name} className="flex items-center justify-center gap-2 w-full py-3 rounded-2xl font-bold text-white text-sm" style={{background:'linear-gradient(135deg,#1e40af,#3b82f6)'}}>
-            ⬇️ {t('download')} {file.name}
-          </a>
+          <button onClick={apriFuori} className="flex items-center justify-center gap-2 w-full py-3 rounded-2xl font-bold text-white text-sm" style={{background:'linear-gradient(135deg,#1e40af,#3b82f6)'}}>
+            📤 {t('share_save')}
+          </button>
         </div>
       </div>
     </div>
@@ -628,6 +751,113 @@ function TerapiaCard({x, onEdit, onDel, conclusa}) {
   );
 }
 
+// --- Allergie ---
+function AllergiaModal({iniziale, onSave, onClose}) {
+  const oggi = new Date().toISOString().slice(0,10);
+  const [f, sf] = useState(iniziale
+    ? {...iniziale, sintomi:iniziale.sintomi||'', note:iniziale.note||'', allegati:[]}
+    : {data:oggi,sostanza:'',tipo:TIPI_ALLERGIA[0],gravita:GRAVITA[0],sintomi:'',note:'',allegati:[]});
+  const caricando = useAllegatiCompleti(iniziale, sf);
+  const ok = f.sostanza.trim();
+  return (
+    <Modal title={iniziale?t('edit_allergy'):t('new_allergy')} onClose={onClose} onSave={ok?()=>onSave(f):null}
+      saveLabel={ok?(iniziale?t('save_changes'):t('save_allergy')):t('need_allergy')} saveBg="linear-gradient(135deg,#9f1239,#e11d48)">
+      <Inp lbl={t('substance_l')} placeholder={t('substance_ph')} value={f.sostanza} onChange={e=>sf(p=>({...p,sostanza:e.target.value}))}/>
+      <Sel lbl={t('allergy_type_l')} opts={TIPI_ALLERGIA} value={f.tipo} onChange={e=>sf(p=>({...p,tipo:e.target.value}))}/>
+      <div className="mb-3">
+        <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{t('severity_l')}</label>
+        <div className="flex gap-2">
+          {GRAVITA.map(g=>(
+            <button key={g} onClick={()=>sf(p=>({...p,gravita:g}))}
+              className="flex-1 py-2.5 rounded-xl text-xs font-bold transition-all border"
+              style={f.gravita===g
+                ? {background:coloreGravita(g),color:'white',borderColor:coloreGravita(g)}
+                : {background:'white',color:'#6b7280',borderColor:'#e5e7eb'}}>{tv(g)}</button>
+          ))}
+        </div>
+      </div>
+      <Txt lbl={t('symptoms_l')} placeholder={t('symptoms_ph')} rows={3} value={f.sintomi} onChange={e=>sf(p=>({...p,sintomi:e.target.value}))}/>
+      <Inp lbl={t('discovered_l')} type="date" value={f.data} onChange={e=>sf(p=>({...p,data:e.target.value}))}/>
+      <Txt lbl={t('notes_l')} placeholder={t('allergy_notes_ph')} rows={2} value={f.note} onChange={e=>sf(p=>({...p,note:e.target.value}))}/>
+      {caricando
+        ? <p className="text-xs text-gray-300 py-2">⏳ {t('loading')}</p>
+        : <AttachmentPicker files={f.allegati} onChange={v=>sf(p=>({...p,allegati:v}))}/>}
+    </Modal>
+  );
+}
+
+function AllergieView({allergie, onAdd, onEdit, onDel, onView}) {
+  const gravi = allergie.filter(a=>a.gravita==='Grave');
+  const ordinate = [...allergie].sort((a,b)=>GRAVITA.indexOf(b.gravita)-GRAVITA.indexOf(a.gravita));
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <div><h2 className="text-lg font-black text-gray-800">{t('allergies_title')}</h2><p className="text-xs text-gray-400">{t('allergies_count',allergie.length)}</p></div>
+        <button onClick={onAdd} className="text-white text-sm font-bold px-4 py-2.5 rounded-2xl shadow-md hover:opacity-90" style={{background:'linear-gradient(135deg,#9f1239,#e11d48)'}}>{t('new_f')}</button>
+      </div>
+
+      {gravi.length>0&&(
+        <div className="rounded-2xl p-4 mb-5" style={{background:'#fef2f2',border:'1px solid #fecaca'}}>
+          <p className="text-xs font-black uppercase tracking-wider mb-1" style={{color:'#dc2626'}}>⚠️ {t('severe_alert')}</p>
+          <p className="text-sm font-bold text-gray-800">{gravi.map(a=>a.sostanza).join(' · ')}</p>
+          <p className="text-xs text-gray-500 mt-1">{t('severe_hint')}</p>
+        </div>
+      )}
+
+      {allergie.length===0?(
+        <div className="text-center py-16"><p className="text-5xl mb-3">⚠️</p><p className="text-gray-400 px-8">{t('no_allergies')}</p></div>
+      ):(
+        <div className="space-y-3">
+          {ordinate.map(a=>(
+            <div key={a.id} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50 cursor-pointer hover:shadow-md transition-all"
+              style={{borderLeft:`3px solid ${coloreGravita(a.gravita)}`}} onClick={()=>onView(a)}>
+              <div className="flex items-start gap-3">
+                <span className="text-2xl">{allergiaIcon(a.tipo)}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-bold text-gray-800">{a.sostanza}</p>
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{background:coloreGravita(a.gravita)}}>{tv(a.gravita)}</span>
+                    {a.allegati?.length>0&&<span className="text-xs text-blue-400">📎 {a.allegati.length}</span>}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">{tv(a.tipo)}</p>
+                  {a.sintomi&&<p className="text-sm text-gray-500 mt-1 truncate">{a.sintomi}</p>}
+                </div>
+                <div className="flex flex-col items-center gap-2 flex-shrink-0">
+                  <BtnModifica onClick={()=>onEdit(a)}/>
+                  <button onClick={e=>{e.stopPropagation();onDel(a.id)}} className="text-gray-200 hover:text-red-400 text-xl">🗑</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ViewAllergiaModal({a, onEdit, onClose}) {
+  return (
+    <Modal title={`${allergiaIcon(a.tipo)} ${a.sostanza}`} onClose={onClose}
+      onSave={onEdit?()=>onEdit(a):null} saveLabel={`✏️ ${t('edit')}`} saveBg="linear-gradient(135deg,#9f1239,#e11d48)">
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="rounded-2xl p-3" style={{background:'#fff1f2'}}>
+          <p className="text-xs font-bold uppercase tracking-wide" style={{color:'#9f1239'}}>{t('allergy_type_l')}</p>
+          <p className="font-bold text-sm mt-1" style={{color:'#9f1239'}}>{tv(a.tipo)}</p>
+        </div>
+        <div className="rounded-2xl p-3" style={{background:'#fff1f2'}}>
+          <p className="text-xs font-bold uppercase tracking-wide" style={{color:'#9f1239'}}>{t('severity_l')}</p>
+          <p className="font-bold text-sm mt-1" style={{color:coloreGravita(a.gravita)}}>{tv(a.gravita)}</p>
+        </div>
+      </div>
+      {a.sintomi&&<div className="bg-gray-50 rounded-2xl p-3 mb-3"><p className="text-xs text-gray-400 font-bold uppercase tracking-wide mb-1">{t('symptoms_l')}</p><p className="text-sm text-gray-700 whitespace-pre-wrap">{a.sintomi}</p></div>}
+      {a.data&&<p className="text-xs text-gray-400 mb-2">{t('discovered_l')}: {fmt(a.data)}</p>}
+      {a.note&&<div className="bg-gray-50 rounded-2xl p-3"><p className="text-xs text-gray-400 font-bold uppercase tracking-wide mb-1">{t('notes_l')}</p><p className="text-sm text-gray-600 italic">{a.note}</p></div>}
+      <InlineAttachments allegati={a.allegati} recordId={a.id}/>
+    </Modal>
+  );
+}
+
+// --- Diario clinico ---
 function ProblemaModal({iniziale, onSave, onClose}) {
   const oggi = new Date().toISOString().slice(0,10);
   const [f, sf] = useState(iniziale
@@ -648,16 +878,79 @@ function ProblemaModal({iniziale, onSave, onClose}) {
   );
 }
 
-function AggiornamentoModal({onSave, onClose}) {
+const coloreDolore = n => n==null ? '#d1d5db' : n<=3 ? '#22c55e' : n<=6 ? '#f59e0b' : '#ef4444';
+
+// Gli aggiornamenti vivono dentro il problema, ma i loro allegati si salvano a parte come per gli altri record
+const metaAllegati = (all=[]) => all.map(({id,name,type,size})=>({id,name,type,size}));
+const salvaAllegatiAgg = async (id, all=[]) => {
+  try {
+    if (all.length>0) await window.storage.set(`ht-att-${id}`, JSON.stringify(all));
+    else await window.storage.delete(`ht-att-${id}`);
+  } catch(e){}
+};
+
+function AggiornamentoModal({iniziale, onSave, onClose}) {
   const oggi = new Date().toISOString().slice(0,10);
-  const [f, sf] = useState({data:oggi,testo:''});
+  const [f, sf] = useState(iniziale
+    ? {...iniziale, testo:iniziale.testo||'', allegati:[]}
+    : {data:oggi,testo:'',livello:null,allegati:[]});
+  const caricando = useAllegatiCompleti(iniziale, sf);
   const ok = f.data && f.testo.trim();
   return (
-    <Modal title={t('new_update')} onClose={onClose} onSave={ok?()=>onSave(f):null}
-      saveLabel={ok?t('save_update'):t('need_update')} saveBg="linear-gradient(135deg,#7c2d12,#ea580c)">
+    <Modal title={iniziale?t('edit_update'):t('new_update')} onClose={onClose} onSave={ok?()=>onSave(f):null}
+      saveLabel={ok?(iniziale?t('save_changes'):t('save_update')):t('need_update')} saveBg="linear-gradient(135deg,#7c2d12,#ea580c)">
       <Inp lbl={t('date_l')} type="date" value={f.data} onChange={e=>sf(p=>({...p,data:e.target.value}))}/>
+      <div className="mb-3">
+        <div className="flex items-center justify-between mb-1">
+          <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">{t('level_l')}</label>
+          {f.livello!=null&&<button onClick={()=>sf(p=>({...p,livello:null}))} className="text-xs text-gray-300 font-bold">{t('level_clear')}</button>}
+        </div>
+        <div className="flex gap-1">
+          {[0,1,2,3,4,5,6,7,8,9,10].map(n=>(
+            <button key={n} onClick={()=>sf(p=>({...p,livello:n}))}
+              className="flex-1 py-2 rounded-lg text-xs font-bold transition-all"
+              style={f.livello===n
+                ? {background:coloreDolore(n),color:'white'}
+                : {background:'#f3f4f6',color:'#9ca3af'}}>{n}</button>
+          ))}
+        </div>
+        <p className="text-xs text-gray-300 mt-1">{t('level_hint')}</p>
+      </div>
       <Txt lbl={t('update_l')} placeholder={t('update_ph')} rows={5} value={f.testo} onChange={e=>sf(p=>({...p,testo:e.target.value}))}/>
+      {caricando
+        ? <p className="text-xs text-gray-300 py-2">⏳ {t('loading')}</p>
+        : <AttachmentPicker files={f.allegati} onChange={v=>sf(p=>({...p,allegati:v}))}/>}
     </Modal>
+  );
+}
+
+function AndamentoDolore({aggiornamenti}) {
+  const punti = aggiornamenti.filter(a=>a.livello!=null)
+    .slice().sort((x,y)=>String(x.data).localeCompare(String(y.data)))
+    .map(a=>({df:fmt(a.data), val:a.livello}));
+  if (punti.length<2) return null;
+  const primo=punti[0].val, ultimo=punti[punti.length-1].val, d=ultimo-primo;
+  return (
+    <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50 mb-5">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-black text-gray-400 uppercase tracking-wider">{t('level_trend')}</p>
+        <span className="text-xs font-bold px-2 py-0.5 rounded-full"
+          style={{background:d<0?'#f0fdf4':d>0?'#fff1f2':'#f3f4f6',color:d<0?'#166534':d>0?'#be123c':'#6b7280'}}>
+          {d===0?'=':d>0?'↑':'↓'} {Math.abs(d)}
+        </span>
+      </div>
+      <ResponsiveContainer width="100%" height={130}>
+        <LineChart data={punti} margin={{top:5,right:10,left:-30,bottom:0}}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f5"/>
+          <XAxis dataKey="df" tick={{fontSize:9,fill:'#9ca3af'}}/>
+          <YAxis domain={[0,10]} ticks={[0,5,10]} tick={{fontSize:10,fill:'#9ca3af'}} width={40}/>
+          <Tooltip formatter={v=>[`${v}/10`,t('level_l')]} contentStyle={{fontSize:11,borderRadius:16,border:'none',boxShadow:'0 8px 24px rgba(0,0,0,0.12)'}}/>
+          <Line type="monotone" dataKey="val" stroke="#ea580c" strokeWidth={2.5}
+            dot={({cx,cy,payload})=><circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={4} fill={coloreDolore(payload.val)}/>}
+            activeDot={{r:6}}/>
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   );
 }
 
@@ -696,11 +989,16 @@ function Sezione({icona, titolo, azione, children}) {
   );
 }
 
-function ProblemaDetail({p, terapie, visite, analisi, onBack, onEdit, onStato, onAddTer, onEditTer, onDelTer, onAddAgg, onDelAgg, onLinkV, onLinkA}) {
+function ProblemaDetail({p, terapie, visite, analisi, note, allenamenti,
+  onBack, onEdit, onStato, onAddTer, onEditTer, onDelTer,
+  onAddAgg, onEditAgg, onDelAgg, onLinkV, onLinkA, onLinkN, onLinkS,
+  onApriV, onApriA, onApriN, onEditS}) {
   const mie = terapie.filter(x=>x.problemaId===p.id);
   const oggi = new Date().toISOString().slice(0,10);
   const vLink = visite.filter(v=>(p.visite||[]).includes(v.id));
   const aLink = analisi.filter(a=>(p.analisi||[]).includes(a.id));
+  const nLink = note.filter(n=>(p.note||[]).includes(n.id));
+  const sLink = allenamenti.filter(s=>(p.allenamenti||[]).includes(s.id));
   const agg = [...(p.aggiornamenti||[])].sort((x,y)=>String(y.data).localeCompare(String(x.data)));
   const risolto = p.stato==='risolto';
   const Piu = ({onClick}) => (
@@ -726,6 +1024,8 @@ function ProblemaDetail({p, terapie, visite, analisi, onBack, onEdit, onStato, o
         <InlineAttachments allegati={p.allegati} recordId={p.id}/>
       </div>
 
+      <AndamentoDolore aggiornamenti={p.aggiornamenti||[]}/>
+
       <Sezione icona="💊" titolo={t('therapies_title')} azione={<Piu onClick={onAddTer}/>}>
         {mie.length===0
           ? <p className="text-xs text-gray-300 py-2">{t('none_yet')}</p>
@@ -738,12 +1038,20 @@ function ProblemaDetail({p, terapie, visite, analisi, onBack, onEdit, onStato, o
           ? <p className="text-xs text-gray-300 py-2">{t('none_yet')}</p>
           : <div className="space-y-2">
               {agg.map(a=>(
-                <div key={a.id} className="bg-white rounded-2xl p-3 shadow-sm border border-gray-50 flex items-start gap-3" style={{borderLeft:'3px solid #ea580c'}}>
+                <div key={a.id} className="bg-white rounded-2xl p-3 shadow-sm border border-gray-50 flex items-start gap-3" style={{borderLeft:`3px solid ${a.livello!=null?coloreDolore(a.livello):'#ea580c'}`}}>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs text-gray-400">{fmt(a.data)}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-xs text-gray-400">{fmt(a.data)}</p>
+                      {a.livello!=null&&<span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{background:coloreDolore(a.livello)}}>{a.livello}/10</span>}
+                      {a.allegati?.length>0&&<span className="text-xs text-blue-400">📎 {a.allegati.length}</span>}
+                    </div>
                     <p className="text-sm text-gray-700 whitespace-pre-wrap mt-0.5">{a.testo}</p>
+                    <InlineAttachments allegati={a.allegati} recordId={a.id}/>
                   </div>
-                  <button onClick={()=>onDelAgg(a.id)} className="text-gray-200 hover:text-red-400 text-lg flex-shrink-0">🗑</button>
+                  <div className="flex flex-col items-center gap-2 flex-shrink-0">
+                    <BtnModifica onClick={()=>onEditAgg(a)}/>
+                    <button onClick={()=>onDelAgg(a.id)} className="text-gray-200 hover:text-red-400 text-lg">🗑</button>
+                  </div>
                 </div>
               ))}
             </div>}
@@ -753,23 +1061,51 @@ function ProblemaDetail({p, terapie, visite, analisi, onBack, onEdit, onStato, o
         {vLink.length===0
           ? <p className="text-xs text-gray-300 py-2">{t('none_linked')}</p>
           : <div className="space-y-2">{vLink.map(v=>(
-              <div key={v.id} className="bg-white rounded-2xl p-3 shadow-sm border border-gray-50 flex items-center gap-2">
+              <button key={v.id} onClick={()=>onApriV(v)} className="w-full text-left bg-white rounded-2xl p-3 shadow-sm border border-gray-50 flex items-center gap-2 hover:shadow-md transition-all">
                 <span className="text-lg">👨‍⚕️</span>
                 <span className="flex-1 min-w-0"><span className="block text-sm font-bold text-gray-800 truncate">Dr. {v.medico}</span>
                 <span className="block text-xs text-gray-400 truncate">{tv(v.spec)}</span></span>
                 <span className="text-xs text-gray-300">{fmt(v.data)}</span>
-              </div>))}</div>}
+                <span className="text-gray-300">›</span>
+              </button>))}</div>}
       </Sezione>
 
       <Sezione icona="🩸" titolo={t('tests_title')} azione={<Piu onClick={onLinkA}/>}>
         {aLink.length===0
           ? <p className="text-xs text-gray-300 py-2">{t('none_linked')}</p>
           : <div className="space-y-2">{aLink.map(a=>(
-              <div key={a.id} className="bg-white rounded-2xl p-3 shadow-sm border border-gray-50 flex items-center gap-2">
+              <button key={a.id} onClick={()=>onApriA(a)} className="w-full text-left bg-white rounded-2xl p-3 shadow-sm border border-gray-50 flex items-center gap-2 hover:shadow-md transition-all">
                 <span className="text-lg">🩸</span>
                 <span className="flex-1 min-w-0"><span className="block text-sm font-bold text-gray-800">{t('params_n',(a.params||[]).length)}</span></span>
                 <span className="text-xs text-gray-300">{fmt(a.data)}</span>
-              </div>))}</div>}
+                <span className="text-gray-300">›</span>
+              </button>))}</div>}
+      </Sezione>
+
+      <Sezione icona="📒" titolo={t('notes_title')} azione={<Piu onClick={onLinkN}/>}>
+        {nLink.length===0
+          ? <p className="text-xs text-gray-300 py-2">{t('none_linked')}</p>
+          : <div className="space-y-2">{nLink.map(n=>(
+              <button key={n.id} onClick={()=>onApriN(n)} className="w-full text-left bg-white rounded-2xl p-3 shadow-sm border border-gray-50 flex items-center gap-2 hover:shadow-md transition-all">
+                <span className="text-lg">📝</span>
+                <span className="flex-1 min-w-0"><span className="block text-sm font-bold text-gray-800 truncate">{n.titolo}</span>
+                {n.testo&&<span className="block text-xs text-gray-400 truncate">{n.testo}</span>}</span>
+                <span className="text-xs text-gray-300">{fmt(n.data)}</span>
+                <span className="text-gray-300">›</span>
+              </button>))}</div>}
+      </Sezione>
+
+      <Sezione icona="💪" titolo={t('workouts_title')} azione={<Piu onClick={onLinkS}/>}>
+        {sLink.length===0
+          ? <p className="text-xs text-gray-300 py-2">{t('none_linked')}</p>
+          : <div className="space-y-2">{sLink.map(s=>(
+              <button key={s.id} onClick={()=>onEditS(s)} className="w-full text-left bg-white rounded-2xl p-3 shadow-sm border border-gray-50 flex items-center gap-2 hover:shadow-md transition-all">
+                <span className="text-lg">{sportIcon(s.tipo)}</span>
+                <span className="flex-1 min-w-0"><span className="block text-sm font-bold text-gray-800 truncate">{tv(s.tipo)}</span>
+                <span className="block text-xs text-gray-400">{s.durata} min</span></span>
+                <span className="text-xs text-gray-300">{fmt(s.data)}</span>
+                <span className="text-gray-300">›</span>
+              </button>))}</div>}
       </Sezione>
     </div>
   );
@@ -840,7 +1176,10 @@ function DiarioView({problemi, terapie, onAdd, onOpen, onDel, onEditTer, onDelTe
 
 function NotaModal({iniziale, onSave, onClose}) {
   const oggi = new Date().toISOString().slice(0,10);
-  const [f, sf] = useState(iniziale ? {...iniziale, testo:iniziale.testo||''} : {data:oggi,titolo:'',testo:''});
+  const [f, sf] = useState(iniziale
+    ? {...iniziale, testo:iniziale.testo||'', allegati:[]}
+    : {data:oggi,titolo:'',testo:'',allegati:[]});
+  const caricando = useAllegatiCompleti(iniziale, sf);
   const ok = f.data && f.titolo.trim();
   return (
     <Modal title={iniziale?t('edit_note'):t('new_note')} onClose={onClose} onSave={ok?()=>onSave(f):null}
@@ -848,6 +1187,9 @@ function NotaModal({iniziale, onSave, onClose}) {
       <Inp lbl={t('date_l')} type="date" value={f.data} onChange={e=>sf(p=>({...p,data:e.target.value}))}/>
       <Inp lbl={t('title_l')} placeholder={t('title_ph')} value={f.titolo} onChange={e=>sf(p=>({...p,titolo:e.target.value}))}/>
       <Txt lbl={t('text_l')} placeholder={t('text_ph')} rows={6} value={f.testo} onChange={e=>sf(p=>({...p,testo:e.target.value}))}/>
+      {caricando
+        ? <p className="text-xs text-gray-300 py-2">⏳ {t('loading')}</p>
+        : <AttachmentPicker files={f.allegati} onChange={v=>sf(p=>({...p,allegati:v}))}/>}
     </Modal>
   );
 }
@@ -860,6 +1202,7 @@ function ViewNotaModal({n, onEdit, onClose}) {
       {n.testo
         ? <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{n.testo}</p>
         : <p className="text-sm text-gray-300 italic">{t('note_empty')}</p>}
+      <InlineAttachments allegati={n.allegati} recordId={n.id}/>
     </Modal>
   );
 }
@@ -871,7 +1214,10 @@ function NotaCard({n, onArch, onDel, onView}) {
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
           <p className="text-xs text-gray-400 mb-1">{fmt(n.data)}</p>
-          <p className={`font-bold ${n.archiviata?'text-gray-400':'text-gray-800'}`}>{n.titolo}</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className={`font-bold ${n.archiviata?'text-gray-400':'text-gray-800'}`}>{n.titolo}</p>
+            {n.allegati?.length>0&&<span className="text-xs text-blue-400 font-medium">📎 {n.allegati.length}</span>}
+          </div>
           {n.testo&&<p className="text-sm text-gray-500 mt-0.5 line-clamp-2">{n.testo}</p>}
           <p className="text-xs text-gray-300 mt-1">{t('tap_details')}</p>
         </div>
@@ -986,6 +1332,8 @@ function SearchModal({dati, onGo, onClose}) {
       .map(x=>({id:'t'+x.id,tab:'diario',i:'💊',tit:x.farmaco,sub:x.dose,data:x.inizio})),
     ...dati.problemi.filter(p=>has(p.titolo,p.descrizione,...(p.aggiornamenti||[]).map(a=>a.testo)))
       .map(p=>({id:'p'+p.id,tab:'diario',i:'📔',tit:p.titolo,sub:p.descrizione,data:p.data})),
+    ...dati.allergie.filter(a=>has(a.sostanza,a.tipo,tv(a.tipo),a.sintomi,a.note))
+      .map(a=>({id:'al'+a.id,tab:'allergie',i:allergiaIcon(a.tipo),tit:a.sostanza,sub:`${tv(a.tipo)} · ${tv(a.gravita)}`,data:a.data})),
     ...dati.allenamenti.filter(a=>has(a.tipo,tv(a.tipo),a.note))
       .map(a=>({id:'s'+a.id,tab:'sport',i:'💪',tit:tv(a.tipo),sub:`${a.durata} min`,data:a.data})),
     ...dati.vitali.filter(v=>has(v.tipo,tv(v.tipo),v.note))
@@ -1023,6 +1371,7 @@ function SearchModal({dati, onGo, onClose}) {
 function AltroModal({onGo, onClose}) {
   const voci = [
     {id:'diario',i:'📔',c:'#fff7ed'},
+    {id:'allergie',i:'⚠️',c:'#fff1f2'},
     {id:'sport',i:'💪',c:'#f0fdf4'},
     {id:'ricette',i:'📋',c:'#ecfeff'},
     {id:'note',i:'📝',c:'#fffbeb'},
@@ -1099,27 +1448,45 @@ function SettingsModal({lang, onLang, promemoria, onPromemoria, onExport, onClos
 }
 
 function ExportModal({visite,analisi,vitali,onClose}) {
-  const expVisite = () => {
+  const [errore, setErrore] = useState(null);
+
+  const fileVisite = () => {
     const h=[t('h_date'),t('h_doctor'),t('h_spec'),t('h_diag'),t('h_cost'),t('h_notes'),t('h_nfiles')];
     const r=visite.map(v=>[fmt(v.data),v.medico,tv(v.spec),v.diagnosi||'',v.costo??'',v.note||'',(v.allegati||[]).length]);
-    dlCSV('visite_mediche.csv',mkCSV(h,r));
+    return {name:'visite_mediche.csv', content:mkCSV(h,r)};
   };
-  const expAnalisi = () => {
+  const fileAnalisi = () => {
     const h=[t('h_date'),t('h_param'),t('h_value'),t('h_unit'),t('h_refmin'),t('h_refmax'),t('h_abn'),t('h_notes')];
     const r=[];
     analisi.forEach(a=>(a.params||[]).forEach(p=>r.push([fmt(p.d||a.data),tv(p.n),p.v,p.u,p.min??'',p.max??'',isAbn(p)?t('yes'):t('no'),a.note||''])));
-    dlCSV('analisi_sangue.csv',mkCSV(h,r));
+    return {name:'analisi_sangue.csv', content:mkCSV(h,r)};
   };
-  const expVitali = () => {
+  const fileVitali = () => {
     const h=[t('h_date'),t('h_type'),t('h_value'),t('h_unit'),t('h_notes')];
     const r=vitali.map(v=>[fmt(v.data),tv(v.tipo),v.tipo==='Pressione'?`${v.massima??''}/${v.minima??''}`:v.valore,VITALI.find(x=>x.n===v.tipo)?.u||'',v.note||'']);
-    dlCSV('dati_vitali.csv',mkCSV(h,r));
+    return {name:'dati_vitali.csv', content:mkCSV(h,r)};
   };
-  const expAll = () => { expVisite(); setTimeout(expAnalisi,350); setTimeout(expVitali,700); };
+
+  const esporta = async fn => {
+    setErrore(null);
+    try { const f=fn(); await salvaCSV(f.name, f.content); }
+    catch(e) { console.error(e); setErrore(t('export_err')); }
+  };
+  const expAll = async () => {
+    setErrore(null);
+    try {
+      const elenco=[];
+      if (visite.length) elenco.push(fileVisite());
+      if (analisi.length) elenco.push(fileAnalisi());
+      if (vitali.length) elenco.push(fileVitali());
+      await salvaCSVMulti(elenco);
+    } catch(e) { console.error(e); setErrore(t('export_err')); }
+  };
+
   const items=[
-    {l:`👨‍⚕️ ${t('visits_title')}`,c:visite.length,f:expVisite,bg:'#eff6ff',col:'#1e40af'},
-    {l:`🩸 ${t('tests_title')}`,c:analisi.length,f:expAnalisi,bg:'#fff1f2',col:'#be123c'},
-    {l:`💓 ${t('vitals_title')}`,c:vitali.length,f:expVitali,bg:'#fdf4ff',col:'#7e22ce'},
+    {l:`👨‍⚕️ ${t('visits_title')}`,c:visite.length,f:()=>esporta(fileVisite),bg:'#eff6ff',col:'#1e40af'},
+    {l:`🩸 ${t('tests_title')}`,c:analisi.length,f:()=>esporta(fileAnalisi),bg:'#fff1f2',col:'#be123c'},
+    {l:`💓 ${t('vitals_title')}`,c:vitali.length,f:()=>esporta(fileVitali),bg:'#fdf4ff',col:'#7e22ce'},
   ];
   const tot=visite.length+analisi.length+vitali.length;
   return (
@@ -1134,7 +1501,7 @@ function ExportModal({visite,analisi,vitali,onClose}) {
               <p className="font-bold text-sm" style={{color:it.col}}>{it.l}</p>
               <p className="text-xs mt-0.5" style={{color:it.col,opacity:.6}}>{t('records_n',it.c)}</p>
             </div>
-            <span className="text-xl">⬇️</span>
+            <span className="text-xl">📤</span>
           </button>
         ))}
       </div>
@@ -1143,6 +1510,7 @@ function ExportModal({visite,analisi,vitali,onClose}) {
         style={{background:'linear-gradient(135deg,#1e3a8a,#2563eb)'}}>
         {t('export_all')}
       </button>
+      {errore&&<p className="text-xs text-red-500 text-center mt-3">{errore}</p>}
       <p className="text-xs text-gray-300 text-center mt-3">{t('export_note')}</p>
     </Modal>
   );
@@ -1441,6 +1809,7 @@ export default function App() {
   const [note, setNote] = useState([]);
   const [terapie, setTerapie] = useState([]);
   const [problemi, setProblemi] = useState([]);
+  const [allergie, setAllergie] = useState([]);
   const [problemaAperto, setProblemaAperto] = useState(null);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
@@ -1457,7 +1826,7 @@ export default function App() {
         setLang(scelta); setLangState(scelta);
       } catch(e){}
       try { const r=await window.storage.get('ht-promemoria'); if(r?.value==='1') setPromemoria(true); } catch(e){}
-      for (const [k,fn] of [['ht-visite',setVisite],['ht-analisi',setAnalisi],['ht-allenamenti',setAllenamenti],['ht-ricette',setRicette],['ht-note',setNote],['ht-terapie',setTerapie],['ht-problemi',setProblemi]]) {
+      for (const [k,fn] of [['ht-visite',setVisite],['ht-analisi',setAnalisi],['ht-allenamenti',setAllenamenti],['ht-ricette',setRicette],['ht-note',setNote],['ht-terapie',setTerapie],['ht-problemi',setProblemi],['ht-allergie',setAllergie]]) {
         try { const r=await window.storage.get(k); if(r) fn(JSON.parse(r.value)); } catch(e){}
       }
       try {
@@ -1543,7 +1912,7 @@ export default function App() {
   });
 
   const TABS = [{id:'home',i:'🏠'},{id:'visite',i:'👨‍⚕️'},{id:'analisi',i:'🩸'},{id:'vitali',i:'💓'},{id:'altro',i:'⋯'}];
-  const SEZ_ALTRO = ['diario','sport','ricette','note'];
+  const SEZ_ALTRO = ['diario','allergie','sport','ricette','note'];
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-screen" style={{background:'#f8faff'}}>
@@ -1576,9 +1945,10 @@ export default function App() {
           {tab==='sport'   && <AllenamentiView allenamenti={allenamenti} onAdd={()=>setModal('allenamento')} onEdit={a=>setModal({t:'editS',d:a})} onDel={id=>del('ht-allenamenti',setAllenamenti,id)}/>}
           {tab==='ricette' && <RicetteView ricette={ricette} onAdd={()=>setModal('ricetta')} onToggle={toggleRicetta} onEdit={r=>setModal({t:'editR',d:r})} onDel={id=>del('ht-ricette',setRicette,id)}/>}
           {tab==='note'    && <NoteView note={note} onAdd={()=>setModal('nota')} onArch={toggleNota} onDel={id=>del('ht-note',setNote,id)} onView={n=>setModal({t:'viewN',d:n})}/>}
+          {tab==='allergie' && <AllergieView allergie={allergie} onAdd={()=>setModal('allergia')} onEdit={a=>setModal({t:'editAl',d:a})} onDel={id=>del('ht-allergie',setAllergie,id)} onView={a=>setModal({t:'viewAl',d:a})}/>}
           {tab==='diario' && (problemaAperto
             ? <ProblemaDetail
-                p={problemaAperto} terapie={terapie} visite={visite} analisi={analisi}
+                p={problemaAperto} terapie={terapie} visite={visite} analisi={analisi} note={note} allenamenti={allenamenti}
                 onBack={()=>setProblemaAperto(null)}
                 onEdit={()=>setModal({t:'editP',d:problemaAperto})}
                 onStato={s=>patchProblema(problemaAperto.id,p=>({...p,stato:s}))}
@@ -1586,9 +1956,16 @@ export default function App() {
                 onEditTer={x=>setModal({t:'editT',d:x})}
                 onDelTer={id=>del('ht-terapie',setTerapie,id)}
                 onAddAgg={()=>setModal('aggiornamento')}
-                onDelAgg={idA=>patchProblema(problemaAperto.id,p=>({...p,aggiornamenti:(p.aggiornamenti||[]).filter(a=>a.id!==idA)}))}
+                onEditAgg={a=>setModal({t:'editAgg',d:a})}
+                onDelAgg={idA=>{ window.storage.delete(`ht-att-${idA}`).catch(()=>{}); patchProblema(problemaAperto.id,p=>({...p,aggiornamenti:(p.aggiornamenti||[]).filter(a=>a.id!==idA)})); }}
                 onLinkV={()=>setModal('linkV')}
                 onLinkA={()=>setModal('linkA')}
+                onLinkN={()=>setModal('linkN')}
+                onLinkS={()=>setModal('linkS')}
+                onApriV={v=>setModal({t:'viewV',d:v})}
+                onApriA={a=>setModal({t:'viewA',d:a})}
+                onApriN={n=>setModal({t:'viewN',d:n})}
+                onEditS={s=>setModal({t:'editS',d:s})}
               />
             : <DiarioView problemi={problemi} terapie={terapie} onAdd={()=>setModal('problema')}
                 onOpen={p=>setProblemaAperto(p)} onDel={id=>del('ht-problemi',setProblemi,id)}
@@ -1617,18 +1994,29 @@ export default function App() {
       {modal==='ricetta'  && <RicettaModal onSave={d=>add('ht-ricette',setRicette,d)} onClose={()=>setModal(null)}/>}
       {modal==='nota'     && <NotaModal onSave={d=>add('ht-note',setNote,d)} onClose={()=>setModal(null)}/>}
       {modal?.t==='newTer' && <TerapiaModal problemaId={modal.d} onSave={d=>add('ht-terapie',setTerapie,d)} onClose={()=>setModal(null)}/>}
+      {modal==='allergia' && <AllergiaModal onSave={d=>add('ht-allergie',setAllergie,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='editAl' && <AllergiaModal iniziale={modal.d} onSave={d=>edit('ht-allergie',setAllergie,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='viewAl' && <ViewAllergiaModal a={modal.d} onEdit={a=>setModal({t:'editAl',d:a})} onClose={()=>setModal(null)}/>}
       {modal==='problema' && <ProblemaModal onSave={d=>add('ht-problemi',setProblemi,d)} onClose={()=>setModal(null)}/>}
       {modal?.t==='editP' && <ProblemaModal iniziale={modal.d} onSave={d=>{edit('ht-problemi',setProblemi,d); setProblemaAperto({...problemaAperto,...d});}} onClose={()=>setModal(null)}/>}
       {modal==='aggiornamento' && <AggiornamentoModal onClose={()=>setModal(null)}
-        onSave={d=>{ patchProblema(problemaAperto.id,p=>({...p,aggiornamenti:[...(p.aggiornamenti||[]),{...d,id:Date.now()}]})); setModal(null); }}/>}
+        onSave={async d=>{ const id=Date.now(); await salvaAllegatiAgg(id,d.allegati); patchProblema(problemaAperto.id,p=>({...p,aggiornamenti:[...(p.aggiornamenti||[]),{...d,id,allegati:metaAllegati(d.allegati)}]})); setModal(null); }}/>}
+      {modal?.t==='editAgg' && <AggiornamentoModal iniziale={modal.d} onClose={()=>setModal(null)}
+        onSave={async d=>{ await salvaAllegatiAgg(d.id,d.allegati); patchProblema(problemaAperto.id,p=>({...p,aggiornamenti:(p.aggiornamenti||[]).map(a=>a.id===d.id?{...d,allegati:metaAllegati(d.allegati)}:a)})); setModal(null); }}/>}
       {modal==='linkV' && <CollegaModal titolo={`👨‍⚕️ ${t('link_visits')}`} selezionati={problemaAperto?.visite}
         elementi={visite.map(v=>({id:v.id,tit:`Dr. ${v.medico}`,sub:tv(v.spec),data:v.data}))}
         onSave={ids=>{ patchProblema(problemaAperto.id,p=>({...p,visite:ids})); setModal(null); }} onClose={()=>setModal(null)}/>}
       {modal==='linkA' && <CollegaModal titolo={`🩸 ${t('link_tests')}`} selezionati={problemaAperto?.analisi}
         elementi={analisi.map(a=>({id:a.id,tit:t('test_of',fmt(a.data)),sub:t('params_n',(a.params||[]).length),data:a.data}))}
         onSave={ids=>{ patchProblema(problemaAperto.id,p=>({...p,analisi:ids})); setModal(null); }} onClose={()=>setModal(null)}/>}
+      {modal==='linkN' && <CollegaModal titolo={`📝 ${t('link_notes')}`} selezionati={problemaAperto?.note}
+        elementi={note.map(n=>({id:n.id,tit:n.titolo,sub:n.testo,data:n.data}))}
+        onSave={ids=>{ patchProblema(problemaAperto.id,p=>({...p,note:ids})); setModal(null); }} onClose={()=>setModal(null)}/>}
+      {modal==='linkS' && <CollegaModal titolo={`💪 ${t('link_workouts')}`} selezionati={problemaAperto?.allenamenti}
+        elementi={allenamenti.map(s=>({id:s.id,tit:tv(s.tipo),sub:`${s.durata} min`,data:s.data}))}
+        onSave={ids=>{ patchProblema(problemaAperto.id,p=>({...p,allenamenti:ids})); setModal(null); }} onClose={()=>setModal(null)}/>}
       {modal==='altro'    && <AltroModal onGo={id=>{setTab(id);setModal(null);}} onClose={()=>setModal(null)}/>}
-      {modal==='search'   && <SearchModal dati={{visite,analisi,note,ricette,terapie,allenamenti,vitali,problemi}} onGo={id=>{setTab(id);setProblemaAperto(null);setModal(null);}} onClose={()=>setModal(null)}/>}
+      {modal==='search'   && <SearchModal dati={{visite,analisi,note,ricette,terapie,allenamenti,vitali,problemi,allergie}} onGo={id=>{setTab(id);setProblemaAperto(null);setModal(null);}} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewN' && <ViewNotaModal n={modal.d} onEdit={n=>setModal({t:'editN',d:n})} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewV' && <ViewVisitaModal v={modal.d} onEdit={v=>setModal({t:'editV',d:v})} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewA' && <ViewAnalisiModal a={modal.d} onEdit={a=>setModal({t:'editA',d:a})} onClose={()=>setModal(null)}/>}
