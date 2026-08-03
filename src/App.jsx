@@ -35,6 +35,7 @@ const SPORT = [
 ];
 const sportIcon = t => SPORT.find(s=>s.n===t)?.i || "💪";
 const FREQ = ["1 volta al giorno","2 volte al giorno","3 volte al giorno","Ogni 8 ore","Ogni 12 ore","A giorni alterni","1 volta a settimana","Al bisogno"];
+const GRUPPI = ["0-","0+","A-","A+","B-","B+","AB-","AB+"];
 const TIPI_ALLERGIA = ["Farmaco","Alimento","Polline","Acaro","Pelo di animale","Puntura di insetto","Lattice","Metallo","Altro"];
 const GRAVITA = ["Lieve","Moderata","Grave"];
 const allergiaIcon = t => ({Farmaco:'💊',Alimento:'🍽️',Polline:'🌾',Acaro:'🛏️',"Pelo di animale":'🐕',"Puntura di insetto":'🐝',Lattice:'🧤',Metallo:'⚙️'}[t] || '⚠️');
@@ -751,6 +752,71 @@ function TerapiaCard({x, onEdit, onDel, conclusa}) {
   );
 }
 
+// --- Cartella clinica: i dati da avere sempre sottomano ---
+function CartellaModal({dati, allergie, ultimoPeso, onSave, onClose}) {
+  const [f, sf] = useState({
+    nome:'', nascita:'', gruppo:'', altezza:'', peso:'',
+    emergenzaNome:'', emergenzaTel:'', medicoNome:'', medicoTel:'', note:'', ...(dati||{}),
+  });
+  const s = (k,v) => sf(p=>({...p,[k]:v}));
+  const gravi = allergie.filter(a=>a.gravita==='Grave');
+  const num = v => { const n=parseFloat(String(v).replace(',','.')); return isNaN(n)?null:n; };
+  const salva = () => onSave({...f, altezza:num(f.altezza), peso:num(f.peso)});
+
+  return (
+    <Modal title={t('record_title')} onClose={onClose} onSave={salva} saveLabel={t('save')} saveBg="linear-gradient(135deg,#1e40af,#3b82f6)">
+      <p className="text-xs text-gray-400 mb-4">{t('record_desc')}</p>
+
+      <Inp lbl={t('rec_name')} placeholder={t('rec_name_ph')} value={f.nome} onChange={e=>s('nome',e.target.value)}/>
+      <Inp lbl={t('rec_birth')} type="date" value={f.nascita} onChange={e=>s('nascita',e.target.value)}/>
+
+      <div className="mb-3">
+        <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{t('rec_blood')}</label>
+        <div className="grid grid-cols-4 gap-2">
+          {GRUPPI.map(g=>(
+            <button key={g} onClick={()=>s('gruppo', f.gruppo===g?'':g)}
+              className="py-2.5 rounded-xl text-sm font-black transition-all border"
+              style={f.gruppo===g
+                ? {background:'#be123c',color:'white',borderColor:'#be123c'}
+                : {background:'white',color:'#6b7280',borderColor:'#e5e7eb'}}>{g}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Inp lbl={t('rec_height')} type="text" inputMode="decimal" placeholder="175" value={f.altezza} onChange={e=>s('altezza',e.target.value)}/>
+        <Inp lbl={t('rec_weight')} type="text" inputMode="decimal" placeholder="70" value={f.peso} onChange={e=>s('peso',e.target.value)}/>
+      </div>
+      {ultimoPeso!=null&&(
+        <button onClick={()=>s('peso',String(ultimoPeso))} className="text-xs font-bold mb-3" style={{color:'#1e40af'}}>
+          {t('rec_use_last',ultimoPeso)}
+        </button>
+      )}
+
+      <p className="text-xs font-black text-gray-400 uppercase tracking-wider mt-4 mb-2">🚨 {t('rec_emergency')}</p>
+      <div className="grid grid-cols-2 gap-3">
+        <Inp lbl={t('rec_contact')} placeholder={t('rec_contact_ph')} value={f.emergenzaNome} onChange={e=>s('emergenzaNome',e.target.value)}/>
+        <Inp lbl={t('rec_phone')} type="tel" placeholder="333..." value={f.emergenzaTel} onChange={e=>s('emergenzaTel',e.target.value)}/>
+      </div>
+
+      <p className="text-xs font-black text-gray-400 uppercase tracking-wider mt-2 mb-2">👨‍⚕️ {t('rec_doctor')}</p>
+      <div className="grid grid-cols-2 gap-3">
+        <Inp lbl={t('rec_contact')} placeholder={t('doctor_ph')} value={f.medicoNome} onChange={e=>s('medicoNome',e.target.value)}/>
+        <Inp lbl={t('rec_phone')} type="tel" placeholder="06..." value={f.medicoTel} onChange={e=>s('medicoTel',e.target.value)}/>
+      </div>
+
+      <Txt lbl={t('rec_notes')} placeholder={t('rec_notes_ph')} rows={3} value={f.note} onChange={e=>s('note',e.target.value)}/>
+
+      {gravi.length>0&&(
+        <div className="rounded-2xl p-3 mt-1" style={{background:'#fef2f2',border:'1px solid #fecaca'}}>
+          <p className="text-xs font-black uppercase tracking-wider mb-1" style={{color:'#dc2626'}}>⚠️ {t('severe_alert')}</p>
+          <p className="text-sm font-bold text-gray-800">{gravi.map(a=>a.sostanza).join(' · ')}</p>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 // --- Allergie ---
 function AllergiaModal({iniziale, onSave, onClose}) {
   const oggi = new Date().toISOString().slice(0,10);
@@ -1390,7 +1456,7 @@ function AltroModal({onGo, onClose}) {
   );
 }
 
-function SettingsModal({lang, onLang, promemoria, onPromemoria, onExport, onClose}) {
+function SettingsModal({lang, onLang, promemoria, onPromemoria, onExport, onCartella, cartella, onClose}) {
   const [info, setInfo] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -1407,6 +1473,11 @@ function SettingsModal({lang, onLang, promemoria, onPromemoria, onExport, onClos
   );
   return (
     <Modal title={t('set_title')} onClose={onClose}>
+      <Row icon="🗂️" label={t('record_title')}
+        desc={cartella?.gruppo || cartella?.altezza || cartella?.peso
+          ? [cartella.gruppo, cartella.altezza&&`${cartella.altezza} cm`, cartella.peso&&`${cartella.peso} kg`].filter(Boolean).join(' · ')
+          : t('record_empty')}
+        onClick={onCartella}/>
       <div className="w-full flex items-center gap-3 bg-gray-50 rounded-2xl p-4 mb-2">
         <span className="text-2xl">🔔</span>
         <span className="flex-1 min-w-0">
@@ -1701,37 +1772,146 @@ function AndamentoAnalisi({analisi}) {
 }
 
 function AnalisiView({analisi, onAdd, onDel, onView}) {
+  const [vista, setVista] = useState('valori');   // valori = elenco completo · analisi = raggruppate per data
+  const [filtro, setFiltro] = useState('');
+
+  const [aperti, setAperti] = useState(new Set());
+  const flip = n => setAperti(s=>{ const x=new Set(s); x.has(n)?x.delete(n):x.add(n); return x; });
+
+  // Tutti i valori di tutte le analisi, ognuno con la sua data
+  const tutti = analisi.flatMap(a=>(a.params||[]).map(p=>({p, a, data:p.d||a.data})))
+    .sort((x,y)=>String(y.data).localeCompare(String(x.data)));
+
+  // Un parametro = una voce, col valore più recente in evidenza e lo storico dentro
+  const perParametro = [];
+  const indice = new Map();
+  for (const x of tutti) {                    // tutti è già ordinato dal più recente
+    if (!indice.has(x.p.n)) { const g={nome:x.p.n, ultimo:x, storico:[]}; indice.set(x.p.n,g); perParametro.push(g); }
+    else indice.get(x.p.n).storico.push(x);
+  }
+  const q = filtro.trim().toLowerCase();
+  const visibili = q ? perParametro.filter(g=>tv(g.nome).toLowerCase().includes(q)||g.nome.toLowerCase().includes(q)) : perParametro;
+  const anomali = perParametro.filter(g=>isAbn(g.ultimo.p)).length;
+
+  const Tab = ({id,label}) => (
+    <button onClick={()=>setVista(id)} className="flex-1 py-2 rounded-xl text-xs font-bold transition-all"
+      style={vista===id?{background:'#be123c',color:'white'}:{background:'transparent',color:'#9ca3af'}}>{label}</button>
+  );
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
-        <div><h2 className="text-lg font-black text-gray-800">{t('tests_title')}</h2><p className="text-xs text-gray-400">{t('tests_count',analisi.length)}</p></div>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-lg font-black text-gray-800">{t('tests_title')}</h2>
+          <p className="text-xs text-gray-400">{t('values_count',tutti.length,analisi.length)}</p>
+        </div>
         <button onClick={onAdd} className="text-white text-sm font-bold px-4 py-2.5 rounded-2xl shadow-md hover:opacity-90" style={{background:'linear-gradient(135deg,#be123c,#f43f5e)'}}>{t('new_f')}</button>
       </div>
-      {analisi.length>1 && <AndamentoAnalisi analisi={analisi}/>}
+
       {analisi.length===0?(
         <div className="text-center py-16"><p className="text-5xl mb-3">🩸</p><p className="text-gray-400">{t('no_tests')}</p></div>
       ):(
-        <div className="space-y-3">
-          {analisi.map(a=>{
-            const params=a.params||[], abn=params.filter(isAbn);
-            return (
-              <div key={a.id} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50 cursor-pointer hover:shadow-md transition-all" onClick={()=>onView(a)}>
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                      <span className="font-bold text-gray-800">{fmt(a.data)}</span>
-                      {abn.length>0?<span className="text-xs font-bold px-2.5 py-0.5 rounded-full" style={{background:'#fff1f2',color:'#be123c'}}>{t('abn_badge',abn.length)}</span>:<span className="text-xs font-bold px-2.5 py-0.5 rounded-full" style={{background:'#f0fdf4',color:'#166534'}}>{t('ok_badge')}</span>}
-                      {a.allegati?.length>0&&<span className="text-xs text-blue-400 font-medium">📎 {a.allegati.length}</span>}
-                    </div>
-                    <p className="text-xs text-gray-400">{t('params_tap',params.length)}</p>
-                    {abn.length>0&&<p className="text-xs text-red-400 mt-1 truncate">↑↓ {abn.map(p=>tv(p.n)).join(', ')}</p>}
-                  </div>
-                  <button onClick={e=>{e.stopPropagation();onDel(a.id)}} className="text-gray-200 hover:text-red-400 transition-colors text-xl ml-3 flex-shrink-0">🗑</button>
-                </div>
+        <>
+          {analisi.length>1 && <AndamentoAnalisi analisi={analisi}/>}
+
+          <div className="flex gap-1 p-1 rounded-2xl bg-gray-100 mb-3">
+            <Tab id="valori" label={t('view_values')}/>
+            <Tab id="analisi" label={t('view_tests')}/>
+          </div>
+
+          {vista==='valori' ? (
+            <>
+              <div className="flex items-center gap-2 mb-3">
+                <input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder={t('filter_param')}
+                  className="flex-1 min-w-0 border border-gray-200 rounded-xl px-4 py-2.5 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-red-400 focus:bg-white"/>
+                {filtro&&<button onClick={()=>setFiltro('')} className="text-gray-300 font-bold text-lg px-1">×</button>}
               </div>
-            );
-          })}
-        </div>
+              {anomali>0&&!q&&<p className="text-xs mb-2" style={{color:'#be123c'}}>⚠ {t('abn_total',anomali)}</p>}
+
+              {visibili.length===0
+                ? <div className="text-center py-10"><p className="text-4xl mb-2">🔍</p><p className="text-sm text-gray-400">{t('search_none')}</p></div>
+                : <div className="space-y-1.5">
+                    {visibili.map(g=>{
+                      const x = g.ultimo, ab = isAbn(x.p);
+                      const n = g.storico.length + 1;
+                      const aperto = aperti.has(g.nome);
+                      const prec = g.storico[0];
+                      const delta = prec ? x.p.v - prec.p.v : null;
+                      return (
+                        <div key={g.nome} className="rounded-xl border overflow-hidden"
+                          style={ab?{background:'#fff1f2',borderColor:'#fecdd3'}:{background:'white',borderColor:'#f3f4f6'}}>
+                          <button onClick={()=>n>1?flip(g.nome):onView(x.a)}
+                            className="w-full flex items-center gap-3 px-3 py-3 text-left">
+                            <span className="flex-1 min-w-0">
+                              <span className="flex items-center gap-2 flex-wrap">
+                                <span className={`text-sm font-bold ${ab?'text-red-700':'text-gray-800'}`}>{tv(g.nome)}</span>
+                                {n>1&&<span className="text-xs font-bold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">×{n}</span>}
+                              </span>
+                              <span className="block text-xs text-gray-400 mt-0.5">
+                                {fmt(x.data)}{refRange(x.p)!==null?` · ${t('ref')} ${refRange(x.p)}`:''}
+                              </span>
+                            </span>
+                            {delta!=null&&Math.abs(delta)>0.0001&&(
+                              <span className="text-xs font-bold flex-shrink-0" style={{color:delta>0?'#f97316':'#0ea5e9'}}>
+                                {delta>0?'↑':'↓'}{Math.abs(Number(delta.toFixed(2)))}
+                              </span>
+                            )}
+                            {ab&&<span className="text-xs font-bold px-1.5 py-0.5 rounded-full text-white flex-shrink-0" style={{background:'#ef4444'}}>!</span>}
+                            <span className="text-right flex-shrink-0">
+                              <span className={`block font-black text-base ${ab?'text-red-600':'text-gray-800'}`}>{x.p.v}</span>
+                              <span className="block text-xs text-gray-400">{x.p.u}</span>
+                            </span>
+                            {n>1&&<span className="text-gray-300 text-sm flex-shrink-0">{aperto?'▾':'›'}</span>}
+                          </button>
+
+                          {aperto&&(
+                            <div className="px-3 pb-3">
+                              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1.5">{t('history')}</p>
+                              <div className="space-y-1">
+                                {[x, ...g.storico].map((h,i)=>{
+                                  const hab = isAbn(h.p);
+                                  return (
+                                    <button key={`${h.a.id}-${i}`} onClick={()=>onView(h.a)}
+                                      className="w-full flex items-center gap-2 bg-white/70 rounded-lg px-2.5 py-2 text-left hover:bg-white transition-colors">
+                                      <span className="text-xs text-gray-400 flex-1">{fmt(h.data)}{i===0?` · ${t('latest')}`:''}</span>
+                                      <span className={`text-sm font-bold ${hab?'text-red-600':'text-gray-700'}`}>{h.p.v}</span>
+                                      <span className="text-xs text-gray-400">{h.p.u}</span>
+                                      <span className="text-gray-300 text-xs">›</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>}
+            </>
+          ) : (
+            <div className="space-y-3">
+              {analisi.map(a=>{
+                const params=a.params||[], abn=params.filter(isAbn);
+                return (
+                  <div key={a.id} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50 cursor-pointer hover:shadow-md transition-all" onClick={()=>onView(a)}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                          <span className="font-bold text-gray-800">{fmt(a.data)}</span>
+                          {abn.length>0?<span className="text-xs font-bold px-2.5 py-0.5 rounded-full" style={{background:'#fff1f2',color:'#be123c'}}>{t('abn_badge',abn.length)}</span>:<span className="text-xs font-bold px-2.5 py-0.5 rounded-full" style={{background:'#f0fdf4',color:'#166534'}}>{t('ok_badge')}</span>}
+                          {a.allegati?.length>0&&<span className="text-xs text-blue-400 font-medium">📎 {a.allegati.length}</span>}
+                        </div>
+                        <p className="text-xs text-gray-400">{t('params_tap',params.length)}</p>
+                        {abn.length>0&&<p className="text-xs text-red-400 mt-1 truncate">↑↓ {abn.map(p=>tv(p.n)).join(', ')}</p>}
+                      </div>
+                      <button onClick={e=>{e.stopPropagation();onDel(a.id)}} className="text-gray-200 hover:text-red-400 transition-colors text-xl ml-3 flex-shrink-0">🗑</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -1810,6 +1990,7 @@ export default function App() {
   const [terapie, setTerapie] = useState([]);
   const [problemi, setProblemi] = useState([]);
   const [allergie, setAllergie] = useState([]);
+  const [cartella, setCartella] = useState(null);
   const [problemaAperto, setProblemaAperto] = useState(null);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
@@ -1826,6 +2007,7 @@ export default function App() {
         setLang(scelta); setLangState(scelta);
       } catch(e){}
       try { const r=await window.storage.get('ht-promemoria'); if(r?.value==='1') setPromemoria(true); } catch(e){}
+      try { const r=await window.storage.get('ht-cartella'); if(r?.value) setCartella(JSON.parse(r.value)); } catch(e){}
       for (const [k,fn] of [['ht-visite',setVisite],['ht-analisi',setAnalisi],['ht-allenamenti',setAllenamenti],['ht-ricette',setRicette],['ht-note',setNote],['ht-terapie',setTerapie],['ht-problemi',setProblemi],['ht-allergie',setAllergie]]) {
         try { const r=await window.storage.get(k); if(r) fn(JSON.parse(r.value)); } catch(e){}
       }
@@ -2027,7 +2209,12 @@ export default function App() {
       {modal?.t==='editN'   && <NotaModal iniziale={modal.d} onSave={d=>edit('ht-note',setNote,d)} onClose={()=>setModal(null)}/>}
       {modal?.t==='editT'   && <TerapiaModal iniziale={modal.d} problemi={problemi} onSave={d=>edit('ht-terapie',setTerapie,d)} onClose={()=>setModal(null)}/>}
       {modal==='export'   && <ExportModal visite={visite} analisi={analisi} vitali={vitali} onClose={()=>setModal(null)}/>}
-      {modal==='settings' && <SettingsModal lang={lang} onLang={changeLang} promemoria={promemoria} onPromemoria={cambiaPromemoria} onExport={()=>setModal('export')} onClose={()=>setModal(null)}/>}
+      {modal==='settings' && <SettingsModal lang={lang} onLang={changeLang} promemoria={promemoria} onPromemoria={cambiaPromemoria}
+        onExport={()=>setModal('export')} cartella={cartella} onCartella={()=>setModal('cartella')} onClose={()=>setModal(null)}/>}
+      {modal==='cartella' && <CartellaModal dati={cartella} allergie={allergie}
+        ultimoPeso={vitali.find(v=>v.tipo==='Peso')?.valore ?? null}
+        onSave={async d=>{ setCartella(d); try{ await window.storage.set('ht-cartella', JSON.stringify(d)); }catch(e){} setModal(null); }}
+        onClose={()=>setModal(null)}/>}
     </div>
   );
 }
