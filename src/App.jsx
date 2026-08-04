@@ -185,7 +185,7 @@ const dataUrlToBytes = url => {
 };
 
 // Legge il PDF e ne disegna le pagine dentro l'app, una alla volta
-function PdfViewer({file}) {
+function PdfViewer({file, onApri}) {
   const [pagine, setPagine] = useState([]);
   const [tot, setTot] = useState(0);
   const [stato, setStato] = useState('load');
@@ -202,7 +202,7 @@ function PdfViewer({file}) {
         setTot(doc.numPages);
         for (let i=1; i<=n; i++) {
           const page = await doc.getPage(i);
-          const viewport = page.getViewport({scale:1.7});
+          const viewport = page.getViewport({scale:2.2});   // risoluzione utile anche ingrandendo
           const canvas = document.createElement('canvas');
           canvas.width = viewport.width; canvas.height = viewport.height;
           await page.render({canvasContext:canvas.getContext('2d'), viewport}).promise;
@@ -229,12 +229,95 @@ function PdfViewer({file}) {
       <div className="space-y-3">
         {pagine.map((p,i)=>(
           <div key={i}>
-            <img src={p} alt={`${i+1}`} className="w-full rounded-xl shadow-sm border border-gray-100"/>
+            <button onClick={()=>onApri?.(pagine, i)} className="w-full block">
+              <img src={p} alt={`${i+1}`} className="w-full rounded-xl shadow-sm border border-gray-100"/>
+            </button>
             <p className="text-xs text-gray-300 text-center mt-1">{i+1} / {tot}</p>
           </div>
         ))}
       </div>
+      {pagine.length>0&&<p className="text-xs text-gray-300 text-center mt-2">{t('tap_fullscreen')}</p>}
       {tot>40&&<p className="text-xs text-gray-400 text-center mt-3">{t('pdf_limit')}</p>}
+    </div>
+  );
+}
+
+// Immagine con zoom a pizzico, trascinamento e doppio tocco.
+// L'app disabilita lo zoom del browser, quindi i gesti sono gestiti qui.
+function Zoomabile({src, alt, onScalaCambio}) {
+  const [s, setS] = useState(1);
+  const [p, setP] = useState({x:0, y:0});
+  const g = useRef({});
+  const box = useRef(null);
+
+  const dist = ts => Math.hypot(ts[0].clientX-ts[1].clientX, ts[0].clientY-ts[1].clientY);
+  const limita = (np, ns) => {
+    const el = box.current; if (!el) return np;
+    const maxX = el.clientWidth * (ns-1) / 2, maxY = el.clientHeight * (ns-1) / 2;
+    return { x: Math.max(-maxX, Math.min(maxX, np.x)), y: Math.max(-maxY, Math.min(maxY, np.y)) };
+  };
+  const applica = (ns, np) => {
+    ns = Math.min(6, Math.max(1, ns));
+    const pos = ns===1 ? {x:0,y:0} : limita(np ?? p, ns);
+    setS(ns); setP(pos); onScalaCambio?.(ns);
+  };
+
+  const start = e => {
+    if (e.touches.length===2) g.current = {tipo:'pinch', d0:dist(e.touches), s0:s};
+    else if (e.touches.length===1) {
+      const ora = Date.now();
+      if (ora - (g.current.ultimoTap||0) < 300) { applica(s>1 ? 1 : 2.5, {x:0,y:0}); g.current={}; return; }
+      g.current = {tipo: s>1?'pan':null, x0:e.touches[0].clientX-p.x, y0:e.touches[0].clientY-p.y, ultimoTap:ora};
+    }
+  };
+  const move = e => {
+    const c = g.current;
+    if (c.tipo==='pinch' && e.touches.length===2) applica(c.s0 * dist(e.touches)/c.d0);
+    else if (c.tipo==='pan' && e.touches.length===1) applica(s, {x:e.touches[0].clientX-c.x0, y:e.touches[0].clientY-c.y0});
+  };
+  const fine = () => { g.current = {...g.current, tipo:null}; };
+
+  return (
+    <div ref={box} className="w-full h-full overflow-hidden flex items-center justify-center"
+      style={{touchAction:'none'}}
+      onTouchStart={start} onTouchMove={move} onTouchEnd={fine}
+      onDoubleClick={()=>applica(s>1?1:2.5,{x:0,y:0})}>
+      <img src={src} alt={alt} draggable={false}
+        className="max-w-full max-h-full select-none"
+        style={{transform:`translate(${p.x}px, ${p.y}px) scale(${s})`, transition: g.current.tipo?'none':'transform .18s'}}/>
+    </div>
+  );
+}
+
+// Apertura "come una foto": schermo intero, sfondo scuro, con zoom e sfoglio delle pagine
+function VistaFoto({pagine, indice=0, titolo, onCondividi, onClose}) {
+  const [i, setI] = useState(indice);
+  const [scala, setScala] = useState(1);
+  const n = pagine.length;
+  return (
+    <div className="fixed inset-0 z-[80] flex flex-col" style={{background:'#0b0b0d'}}>
+      <div className="flex items-center gap-2 px-4 pb-3 flex-shrink-0" style={{paddingTop:'calc(env(safe-area-inset-top) + 0.75rem)'}}>
+        <button onClick={onClose} className="w-9 h-9 rounded-full flex items-center justify-center text-white text-lg" style={{background:'rgba(255,255,255,0.12)'}}>×</button>
+        <p className="text-white text-sm font-bold flex-1 truncate">{titolo}</p>
+        {onCondividi&&<button onClick={onCondividi} className="w-9 h-9 rounded-full flex items-center justify-center text-white" style={{background:'rgba(255,255,255,0.12)'}}>📤</button>}
+      </div>
+
+      <div className="flex-1 min-h-0 px-2">
+        <Zoomabile key={i} src={pagine[i]} alt={`${i+1}`} onScalaCambio={setScala}/>
+      </div>
+
+      <div className="flex items-center justify-center gap-4 px-4 flex-shrink-0" style={{paddingBottom:'calc(env(safe-area-inset-bottom) + 0.75rem)', paddingTop:'0.75rem'}}>
+        {n>1&&(
+          <>
+            <button onClick={()=>setI(x=>Math.max(0,x-1))} disabled={i===0}
+              className="w-10 h-10 rounded-full flex items-center justify-center text-white text-xl disabled:opacity-25" style={{background:'rgba(255,255,255,0.12)'}}>‹</button>
+            <p className="text-white text-sm font-bold tabular-nums">{i+1} / {n}</p>
+            <button onClick={()=>setI(x=>Math.min(n-1,x+1))} disabled={i===n-1}
+              className="w-10 h-10 rounded-full flex items-center justify-center text-white text-xl disabled:opacity-25" style={{background:'rgba(255,255,255,0.12)'}}>›</button>
+          </>
+        )}
+        {n===1&&<p className="text-xs" style={{color:'rgba(255,255,255,0.4)'}}>{scala>1?t('zoom_hint_out'):t('zoom_hint_in')}</p>}
+      </div>
     </div>
   );
 }
@@ -242,7 +325,7 @@ function PdfViewer({file}) {
 function AttachmentViewer({file, onClose}) {
   const isImg = file.type.startsWith('image/');
   const isPdf = file.type==='application/pdf';
-  const [zoom, setZoom] = useState(false);
+  const [foto, setFoto] = useState(null);   // {pagine, indice}
 
   const apriFuori = async () => {
     // Prova la condivisione nativa (su iPhone apre "Salva su File", Mail, WhatsApp...)
@@ -272,11 +355,14 @@ function AttachmentViewer({file, onClose}) {
 
         <div className="overflow-auto p-4 flex-1" style={{background:isImg||isPdf?'#f8faff':'white'}}>
           {isImg && (
-            <img src={file.data} alt={file.name} onClick={()=>setZoom(z=>!z)}
-              className="rounded-xl shadow-sm cursor-zoom-in"
-              style={zoom?{width:'auto',maxWidth:'none'}:{width:'100%',height:'auto'}}/>
+            <>
+              <button onClick={()=>setFoto({pagine:[file.data], indice:0})} className="w-full">
+                <img src={file.data} alt={file.name} className="w-full rounded-xl shadow-sm"/>
+              </button>
+              <p className="text-xs text-gray-300 text-center mt-2">{t('tap_fullscreen')}</p>
+            </>
           )}
-          {isPdf && <PdfViewer file={file}/>}
+          {isPdf && <PdfViewer file={file} onApri={(pagine,i)=>setFoto({pagine, indice:i})}/>}
           {!isImg&&!isPdf&&(
             <div className="text-center py-12">
               <p className="text-6xl mb-3">{fileIcon(file.type)}</p>
@@ -284,7 +370,6 @@ function AttachmentViewer({file, onClose}) {
               <p className="text-xs text-gray-400 mt-1">{t('preview_none')}</p>
             </div>
           )}
-          {isImg&&<p className="text-xs text-gray-300 text-center mt-2">{zoom?t('img_zoom_out'):t('img_zoom_in')}</p>}
         </div>
 
         <div className="px-5 pb-6 pt-3 border-t border-gray-50">
@@ -293,6 +378,9 @@ function AttachmentViewer({file, onClose}) {
           </button>
         </div>
       </div>
+
+      {foto&&<VistaFoto pagine={foto.pagine} indice={foto.indice} titolo={file.name}
+        onCondividi={apriFuori} onClose={()=>setFoto(null)}/>}
     </div>
   );
 }
