@@ -1510,6 +1510,119 @@ function AltroModal({onGo, onClose}) {
   );
 }
 
+function BackupModal({onClose}) {
+  const ref = useRef(null);
+  const [conAllegati, setConAllegati] = useState(true);
+  const [stato, setStato] = useState('idle');   // idle | work | fatto | errore
+  const [msg, setMsg] = useState(null);
+  const [daImportare, setDaImportare] = useState(null);
+
+  const esporta = async () => {
+    setStato('work'); setMsg(null);
+    try {
+      const { creaBackup } = await import('./backup');
+      const { blob, nome } = await creaBackup({includiAllegati:conAllegati});
+      try {
+        const f = new File([blob], nome, {type:'application/json'});
+        if (navigator.canShare?.({files:[f]})) { await navigator.share({files:[f], title:nome}); setStato('idle'); return; }
+      } catch(e) { if (e?.name==='AbortError') { setStato('idle'); return; } }
+      scaricaBlob(blob, nome);
+      setStato('idle');
+    } catch(e) { console.error(e); setStato('errore'); setMsg(t('bk_export_err')); }
+  };
+
+  const scegli = async e => {
+    const file = e.target.files?.[0]; e.target.value='';
+    if (!file) return;
+    setStato('work'); setMsg(null);
+    try {
+      const { leggiBackup } = await import('./backup');
+      setDaImportare(await leggiBackup(file));
+      setStato('idle');
+    } catch(err) {
+      setStato('errore');
+      setMsg(err.message==='versione' ? t('bk_too_new') : t('bk_bad_file'));
+    }
+  };
+
+  const conferma = async () => {
+    setStato('work');
+    try {
+      const { applicaBackup } = await import('./backup');
+      await applicaBackup(daImportare.contenuto);
+      setStato('fatto');
+      setTimeout(()=>window.location.reload(), 1200);
+    } catch(e) { console.error(e); setStato('errore'); setMsg(t('bk_import_err')); }
+  };
+
+  const R = daImportare?.riepilogo;
+
+  return (
+    <Modal title={t('bk_title')} onClose={onClose}>
+      <input ref={ref} type="file" accept="application/json,.json" className="hidden" onChange={scegli}/>
+
+      {stato==='fatto' ? (
+        <div className="text-center py-10">
+          <p className="text-5xl mb-3">✅</p>
+          <p className="font-bold text-gray-800">{t('bk_done')}</p>
+          <p className="text-xs text-gray-400 mt-1">{t('bk_reloading')}</p>
+        </div>
+      ) : daImportare ? (
+        <>
+          <div className="rounded-2xl p-4 mb-4" style={{background:'#fffbeb',border:'1px solid #fde68a'}}>
+            <p className="text-sm font-bold" style={{color:'#b45309'}}>⚠️ {t('bk_warn_title')}</p>
+            <p className="text-xs text-gray-600 mt-1">{t('bk_warn')}</p>
+          </div>
+          <p className="text-xs text-gray-400 mb-2">{t('bk_file_of')} {daImportare.creato ? fmt(daImportare.creato.slice(0,10)) : '-'}</p>
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            {[['👨‍⚕️',t('visits_title'),R.visite],['🩸',t('tests_title'),R.analisi],['💓',t('vitals_title'),R.vitali],
+              ['💪',t('workouts_title'),R.allenamenti],['📋',t('rx_title'),R.ricette],['📝',t('notes_title'),R.note],
+              ['💊',t('therapies_title'),R.terapie],['📔',t('diary_title'),R.problemi],['⚠️',t('allergies_title'),R.allergie],
+              ['📎',t('bk_attachments'),R.allegati]].filter(x=>x[2]>0).map(([i,l,n])=>(
+              <div key={l} className="bg-gray-50 rounded-xl px-3 py-2 flex items-center gap-2">
+                <span>{i}</span><span className="text-xs text-gray-500 flex-1 truncate">{l}</span>
+                <span className="text-sm font-black text-gray-700">{n}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={()=>{setDaImportare(null);setMsg(null);}} className="flex-1 py-3 rounded-2xl text-sm font-bold bg-gray-100 text-gray-500">{t('cancel')}</button>
+            <button onClick={conferma} disabled={stato==='work'} className="flex-1 py-3 rounded-2xl text-sm font-bold text-white disabled:opacity-50" style={{background:'linear-gradient(135deg,#b45309,#f59e0b)'}}>
+              {stato==='work'?'⏳':t('bk_replace')}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="text-sm text-gray-400 mb-4">{t('bk_desc')}</p>
+
+          <label className="flex items-center gap-3 bg-gray-50 rounded-2xl px-4 py-3 mb-3 cursor-pointer">
+            <input type="checkbox" checked={conAllegati} onChange={()=>setConAllegati(v=>!v)} className="w-4 h-4 accent-blue-600"/>
+            <span className="flex-1">
+              <span className="block text-sm font-bold text-gray-700">{t('bk_with_files')}</span>
+              <span className="block text-xs text-gray-400">{t('bk_with_files_hint')}</span>
+            </span>
+          </label>
+
+          <button onClick={esporta} disabled={stato==='work'}
+            className="w-full py-3.5 rounded-2xl font-bold text-white text-sm mb-2 disabled:opacity-50"
+            style={{background:'linear-gradient(135deg,#1e3a8a,#2563eb)'}}>
+            {stato==='work'?'⏳':`💾 ${t('bk_export')}`}
+          </button>
+          <button onClick={()=>ref.current?.click()} disabled={stato==='work'}
+            className="w-full py-3 rounded-2xl font-bold text-sm border-2 disabled:opacity-50"
+            style={{borderColor:'#e5e7eb',color:'#6b7280'}}>
+            📂 {t('bk_import')}
+          </button>
+
+          {msg&&<p className="text-xs text-red-500 text-center mt-3">{msg}</p>}
+          <p className="text-xs text-gray-300 text-center mt-4">{t('bk_note')}</p>
+        </>
+      )}
+    </Modal>
+  );
+}
+
 function StatisticheModal({dati, onPremium, onClose}) {
   const bloccato = ACQUISTI_ATTIVI && !isPremium();
   const [mesi, setMesi] = useState(12);
@@ -1792,7 +1905,7 @@ function PremiumModal({onSbloccato, onClose}) {
   );
 }
 
-function SettingsModal({lang, onLang, promemoria, onPromemoria, onExport, onReferto, onStat, onCartella, cartella, premium, onPremium, onClose}) {
+function SettingsModal({lang, onLang, promemoria, onPromemoria, onExport, onReferto, onStat, onBackup, onCartella, cartella, premium, onPremium, onClose}) {
   const [info, setInfo] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -1827,6 +1940,7 @@ function SettingsModal({lang, onLang, promemoria, onPromemoria, onExport, onRefe
         </button>
       </div>
       {msg&&<p className="text-xs text-gray-400 px-2 -mt-1 mb-2">{msg}</p>}
+      <Row icon="💾" label={t('bk_title')} desc={t('bk_row_desc')} onClick={onBackup}/>
       <Row icon="📊" label={t('stats_title')} desc={t('stats_row_desc')} onClick={onStat}/>
       <Row icon="📄" label={t('pdf_modal_title')} desc={t('pdf_row_desc')} onClick={onReferto}/>
       <Row icon="📥" label={t('set_export')} desc={t('set_export_d')} onClick={onExport}/>
@@ -2559,12 +2673,13 @@ export default function App() {
       {modal?.t==='editT'   && <TerapiaModal iniziale={modal.d} problemi={problemi} onPremium={()=>setModal('premium')} onSave={d=>edit('ht-terapie',setTerapie,d)} onClose={()=>setModal(null)}/>}
       {modal==='export'   && <ExportModal visite={visite} analisi={analisi} vitali={vitali} onClose={()=>setModal(null)}/>}
       {modal==='settings' && <SettingsModal lang={lang} onLang={changeLang} promemoria={promemoria} onPromemoria={cambiaPromemoria}
-        onExport={()=>setModal('export')} onReferto={()=>setModal('referto')} onStat={()=>setModal('statistiche')}
+        onExport={()=>setModal('export')} onReferto={()=>setModal('referto')} onStat={()=>setModal('statistiche')} onBackup={()=>setModal('backup')}
         cartella={cartella} onCartella={()=>setModal('cartella')}
         premium={premium} onPremium={()=>setModal('premium')} onClose={()=>setModal(null)}/>}
       {modal==='premium' && <PremiumModal onSbloccato={()=>setPremiumState(true)} onClose={()=>setModal(null)}/>}
       {modal==='referto' && <RefertoModal dati={{cartella,allergie,terapie,analisi,visite,vitali,problemi}}
         onPremium={()=>setModal('premium')} onClose={()=>setModal(null)}/>}
+      {modal==='backup' && <BackupModal onClose={()=>setModal(null)}/>}
       {modal==='statistiche' && <StatisticheModal dati={{analisi,vitali,allenamenti}}
         onPremium={()=>setModal('premium')} onClose={()=>setModal(null)}/>}
       {modal==='cartella' && <CartellaModal dati={cartella} allergie={allergie}
