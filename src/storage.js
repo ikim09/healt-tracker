@@ -28,4 +28,6 @@ window.storage = {
   },
   set: (key, value) => op('readwrite', (s) => s.put(value, key)),
   delete: (key) => op('readwrite', (s) => s.delete(key)),
+  // Elenco di tutte le chiavi salvate: serve al backup
+  keys: () => op('readonly', (s) => s.getAllKeys()),
 };

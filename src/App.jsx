@@ -2,8 +2,9 @@ import { useState, useEffect, useRef } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea } from "recharts";
 import { t, tv, tTab, setLang, LANGS, locale } from "./i18n";
 import { PARAMS } from "./params";
+import { ACQUISTI_ATTIVI, isPremium, maxAllegati, MAX_GRATIS, MAX_PREMIUM, acquistiDisponibili, prezzo, acquista, ripristina } from "./acquisti";
 
-const APP_VERSION = "1.0.3";
+const APP_VERSION = "1.0.4";
 
 const SPEC = ["Medicina generale","Cardiologia","Dermatologia","Endocrinologia","Gastroenterologia","Ginecologia","Neurologia","Oftalmologia","Ortopedia","Otorinolaringoiatria","Pneumologia","Reumatologia","Urologia","Altro"];
 const VITALI = [
@@ -122,7 +123,10 @@ function Modal({title,onClose,onSave,saveLabel="Salva",saveBg="linear-gradient(1
 // --- Attachment Components ---
 function AttachmentPicker({files, onChange}) {
   const ref = useRef(null);
-  const MAX = 20;
+  const [paywall, setPaywall] = useState(false);
+  const [, refresh] = useState(0);
+  const MAX = maxAllegati();
+  const onPremium = () => setPaywall(true);
   const handleChange = async e => {
     const picked = Array.from(e.target.files).slice(0, MAX-files.length);
     const added = [];
@@ -138,8 +142,17 @@ function AttachmentPicker({files, onChange}) {
     <div className="mb-1">
       <div className="flex items-center justify-between mb-2">
         <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">{t('att_count',files.length,MAX)}</label>
-        {files.length<MAX&&<button type="button" onClick={()=>ref.current?.click()} className="text-xs text-blue-500 font-bold hover:text-blue-700">{t('add_file')}</button>}
+        {files.length<MAX
+          ? <button type="button" onClick={()=>ref.current?.click()} className="text-xs text-blue-500 font-bold hover:text-blue-700">{t('add_file')}</button>
+          : !isPremium()&&<button type="button" onClick={onPremium} className="text-xs font-bold" style={{color:'#b45309'}}>✨ {t('unlock_more')}</button>}
       </div>
+      {paywall&&<PremiumModal onSbloccato={()=>refresh(n=>n+1)} onClose={()=>setPaywall(false)}/>}
+      {files.length>=MAX&&!isPremium()&&(
+        <button type="button" onClick={onPremium} className="w-full rounded-xl p-3 mb-2 text-left" style={{background:'#fffbeb',border:'1px solid #fde68a'}}>
+          <p className="text-xs font-bold" style={{color:'#b45309'}}>✨ {t('limit_reached',MAX)}</p>
+          <p className="text-xs text-gray-500 mt-0.5">{t('limit_hint',MAX_PREMIUM)}</p>
+        </button>
+      )}
       <input ref={ref} type="file" accept="image/*,application/pdf" multiple className="hidden" onChange={handleChange}/>
       {files.length>0 ? (
         <div className="space-y-1.5 max-h-64 overflow-y-auto">
@@ -1456,7 +1469,289 @@ function AltroModal({onGo, onClose}) {
   );
 }
 
-function SettingsModal({lang, onLang, promemoria, onPromemoria, onExport, onCartella, cartella, onClose}) {
+function StatisticheModal({dati, onPremium, onClose}) {
+  const bloccato = ACQUISTI_ATTIVI && !isPremium();
+  const [mesi, setMesi] = useState(12);
+  const [sel, setSel] = useState([]);          // parametri da confrontare (max 3)
+  const COLORI = ['#be123c','#1e40af','#15803d'];
+  const PERIODI = [{v:3,l:'st_3m'},{v:6,l:'st_6m'},{v:12,l:'st_12m'},{v:null,l:'pdf_all'}];
+
+  const limite = mesi ? new Date(Date.now()-mesi*30*24*3600*1000).toISOString().slice(0,10) : '0000';
+  const dentro = d => String(d) >= limite;
+
+  // Serie di ogni parametro presente in almeno 2 analisi nel periodo
+  const serie = {};
+  dati.analisi.forEach(a=>(a.params||[]).forEach(p=>{
+    const d = p.d||a.data;
+    if (!dentro(d)) return;
+    (serie[p.n] = serie[p.n] || []).push({data:d, v:p.v, p});
+  }));
+  const disponibili = Object.keys(serie).filter(n=>serie[n].length>=2).sort();
+  Object.values(serie).forEach(s=>s.sort((x,y)=>String(x.data).localeCompare(String(y.data))));
+
+  const flip = n => setSel(s=> s.includes(n) ? s.filter(x=>x!==n) : (s.length<3 ? [...s,n] : s));
+
+  // Statistiche di un parametro
+  const stat = n => {
+    const s = serie[n]||[]; if(!s.length) return null;
+    const vals = s.map(x=>x.v);
+    const media = vals.reduce((a,b)=>a+b,0)/vals.length;
+    const fuori = s.filter(x=>isAbn(x.p)).length;
+    return {
+      n, u:s[0].p.u, media, min:Math.min(...vals), max:Math.max(...vals),
+      primo:vals[0], ultimo:vals[vals.length-1], n_mis:vals.length, fuori,
+    };
+  };
+
+  // Dati per il grafico: un punto per data, una colonna per parametro selezionato
+  const date = [...new Set(sel.flatMap(n=>serie[n].map(x=>x.data)))].sort();
+  const grafico = date.map(d=>{
+    const riga = {df:fmt(d)};
+    sel.forEach(n=>{ const x=serie[n].find(y=>y.data===d); if(x) riga[n]=x.v; });
+    return riga;
+  });
+
+  // Attività fisica nel periodo, per dare contesto
+  const allen = dati.allenamenti.filter(a=>dentro(a.data));
+  const minuti = allen.reduce((s,a)=>s+(a.durata||0),0);
+  const pesi = dati.vitali.filter(v=>v.tipo==='Peso'&&dentro(v.data)).sort((a,b)=>String(a.data).localeCompare(String(b.data)));
+  const dPeso = pesi.length>1 ? pesi[pesi.length-1].valore - pesi[0].valore : null;
+
+  if (bloccato) return (
+    <Modal title={t('stats_title')} onClose={onClose} onSave={onPremium} saveLabel={`✨ ${t('stats_unlock')}`} saveBg="linear-gradient(135deg,#b45309,#f59e0b)">
+      <div className="text-center py-6">
+        <p className="text-5xl mb-3">📊</p>
+        <p className="text-sm text-gray-500 px-4">{t('stats_locked')}</p>
+      </div>
+    </Modal>
+  );
+
+  return (
+    <Modal title={t('stats_title')} onClose={onClose}>
+      <div className="flex gap-2 mb-4">
+        {PERIODI.map(p=>(
+          <button key={String(p.v)} onClick={()=>setMesi(p.v)}
+            className="flex-1 py-2 rounded-xl text-xs font-bold border transition-all"
+            style={mesi===p.v?{background:'#1e40af',color:'white',borderColor:'#1e40af'}:{background:'white',color:'#6b7280',borderColor:'#e5e7eb'}}>
+            {t(p.l)}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <div className="rounded-2xl p-3" style={{background:'#f0fdf4'}}>
+          <p className="text-2xl font-black" style={{color:'#166534'}}>{allen.length}</p>
+          <p className="text-xs text-gray-500">{t('st_workouts',minuti)}</p>
+        </div>
+        <div className="rounded-2xl p-3" style={{background:'#eff6ff'}}>
+          <p className="text-2xl font-black" style={{color:'#1e40af'}}>{dPeso==null?'–':`${dPeso>0?'+':''}${Number(dPeso.toFixed(1))}`}</p>
+          <p className="text-xs text-gray-500">{t('st_weight_change')}</p>
+        </div>
+      </div>
+
+      {disponibili.length===0 ? (
+        <div className="text-center py-10"><p className="text-4xl mb-2">📊</p><p className="text-sm text-gray-400 px-6">{t('stats_empty')}</p></div>
+      ) : (
+        <>
+          <p className="text-xs font-black text-gray-400 uppercase tracking-wider mb-2">{t('st_compare')}</p>
+          <div className="flex gap-2 overflow-x-auto pb-2 mb-3" style={{scrollbarWidth:'none'}}>
+            {disponibili.map(n=>{
+              const i = sel.indexOf(n);
+              return (
+                <button key={n} onClick={()=>flip(n)} className="whitespace-nowrap text-xs px-3 py-1.5 rounded-full font-bold flex-shrink-0 border transition-all"
+                  style={i>=0?{background:COLORI[i],color:'white',borderColor:COLORI[i]}:{background:'white',color:'#6b7280',borderColor:'#e5e7eb'}}>
+                  {tv(n)}
+                </button>
+              );
+            })}
+          </div>
+
+          {sel.length===0 ? (
+            <p className="text-xs text-gray-300 text-center py-6">{t('st_pick')}</p>
+          ) : (
+            <>
+              <div className="bg-white rounded-2xl p-3 shadow-sm border border-gray-50 mb-4">
+                <ResponsiveContainer width="100%" height={180}>
+                  <LineChart data={grafico} margin={{top:5,right:10,left:-25,bottom:0}}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f5"/>
+                    <XAxis dataKey="df" tick={{fontSize:9,fill:'#9ca3af'}}/>
+                    <YAxis tick={{fontSize:10,fill:'#9ca3af'}} width={45}/>
+                    <Tooltip contentStyle={{fontSize:11,borderRadius:16,border:'none',boxShadow:'0 8px 24px rgba(0,0,0,0.12)'}}
+                      formatter={(v,n)=>[v,tv(n)]}/>
+                    {sel.map((n,i)=><Line key={n} type="monotone" dataKey={n} name={n} stroke={COLORI[i]} strokeWidth={2.5} connectNulls dot={{r:3}}/>)}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="space-y-2">
+                {sel.map((n,i)=>{
+                  const s = stat(n); if(!s) return null;
+                  const d = s.ultimo - s.primo;
+                  return (
+                    <div key={n} className="rounded-2xl p-3 border" style={{borderColor:'#f3f4f6'}}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="w-2.5 h-2.5 rounded-full" style={{background:COLORI[i]}}/>
+                        <p className="text-sm font-bold text-gray-800 flex-1">{tv(n)}</p>
+                        <span className="text-xs font-bold" style={{color:d>0?'#f97316':d<0?'#0ea5e9':'#9ca3af'}}>
+                          {d===0?'=':d>0?'↑':'↓'} {Math.abs(Number(d.toFixed(2)))}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-2 text-center">
+                        {[[t('st_avg'),s.media.toFixed(1)],[t('st_min'),s.min],[t('st_max'),s.max],[t('st_count'),s.n_mis]].map(([l,v])=>(
+                          <div key={l}>
+                            <p className="text-sm font-black text-gray-700">{v}</p>
+                            <p className="text-xs text-gray-400">{l}</p>
+                          </div>
+                        ))}
+                      </div>
+                      {s.fuori>0&&<p className="text-xs mt-2" style={{color:'#be123c'}}>⚠ {t('st_out',s.fuori,s.n_mis)}</p>}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </>
+      )}
+      <p className="text-xs text-gray-300 text-center mt-4">{t('stats_note')}</p>
+    </Modal>
+  );
+}
+
+function RefertoModal({dati, onPremium, onClose}) {
+  const SEZIONI = [
+    {id:'dati', i:'🗂️', l:'pdf_personal'},
+    {id:'allergie', i:'⚠️', l:'allergies_title'},
+    {id:'terapie', i:'💊', l:'pdf_therapies'},
+    {id:'analisi', i:'🩸', l:'tests_title'},
+    {id:'visite', i:'👨‍⚕️', l:'visits_title'},
+    {id:'vitali', i:'💓', l:'vitals_title'},
+    {id:'percorsi', i:'📔', l:'pdf_journeys'},
+  ];
+  const PERIODI = [{v:6,l:'pdf_6m'},{v:12,l:'pdf_12m'},{v:null,l:'pdf_all'}];
+  const [sez, setSez] = useState(new Set(SEZIONI.map(s=>s.id)));
+  const [mesi, setMesi] = useState(12);
+  const [stato, setStato] = useState('idle');
+  const bloccato = ACQUISTI_ATTIVI && !isPremium();
+
+  const flip = id => setSez(s=>{ const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
+
+  const genera = async () => {
+    if (bloccato) { onPremium(); return; }
+    setStato('work');
+    try {
+      const { generaReferto } = await import('./referto');
+      const blob = await generaReferto(dati, {sezioni:sez, mesi});
+      const nome = `referto_${new Date().toISOString().slice(0,10)}.pdf`;
+      try {
+        const f = new File([blob], nome, {type:'application/pdf'});
+        if (navigator.canShare?.({files:[f]})) { await navigator.share({files:[f], title:nome}); setStato('idle'); return; }
+      } catch(e) { if (e?.name==='AbortError') { setStato('idle'); return; } }
+      scaricaBlob(blob, nome);
+      setStato('idle');
+    } catch(e) { console.error(e); setStato('errore'); }
+  };
+
+  return (
+    <Modal title={t('pdf_modal_title')} onClose={onClose}>
+      <p className="text-sm text-gray-400 mb-4">{t('pdf_modal_desc')}</p>
+
+      <p className="text-xs font-black text-gray-400 uppercase tracking-wider mb-2">{t('pdf_sections')}</p>
+      <div className="space-y-1.5 mb-4">
+        {SEZIONI.map(s=>(
+          <label key={s.id} className="flex items-center gap-3 bg-gray-50 rounded-xl px-3 py-2.5 cursor-pointer">
+            <input type="checkbox" checked={sez.has(s.id)} onChange={()=>flip(s.id)} className="w-4 h-4 accent-blue-600"/>
+            <span className="text-lg">{s.i}</span>
+            <span className="text-sm font-bold text-gray-700 flex-1">{t(s.l)}</span>
+          </label>
+        ))}
+      </div>
+
+      <p className="text-xs font-black text-gray-400 uppercase tracking-wider mb-2">{t('pdf_period')}</p>
+      <div className="flex gap-2 mb-5">
+        {PERIODI.map(p=>(
+          <button key={String(p.v)} onClick={()=>setMesi(p.v)}
+            className="flex-1 py-2.5 rounded-xl text-xs font-bold border transition-all"
+            style={mesi===p.v?{background:'#1e40af',color:'white',borderColor:'#1e40af'}:{background:'white',color:'#6b7280',borderColor:'#e5e7eb'}}>
+            {t(p.l)}
+          </button>
+        ))}
+      </div>
+
+      <button onClick={genera} disabled={stato==='work'||sez.size===0}
+        className="w-full py-3.5 rounded-2xl font-bold text-white text-sm disabled:opacity-40"
+        style={{background:'linear-gradient(135deg,#1e3a8a,#2563eb)'}}>
+        {stato==='work' ? '⏳' : bloccato ? `✨ ${t('pdf_unlock')}` : `📄 ${t('pdf_create')}`}
+      </button>
+      {stato==='errore'&&<p className="text-xs text-red-500 text-center mt-2">{t('pdf_error')}</p>}
+      <p className="text-xs text-gray-300 text-center mt-3">{t('pdf_note')}</p>
+    </Modal>
+  );
+}
+
+function PremiumModal({onSbloccato, onClose}) {
+  const [stato, setStato] = useState('idle');   // idle | work | ok | errore | niente
+  const disponibile = acquistiDisponibili();
+  const p = prezzo();
+
+  const compra = async () => {
+    setStato('work');
+    const r = await acquista();
+    if (r==='ok') { setStato('ok'); onSbloccato(); }
+    else if (r==='annullato') setStato('idle');
+    else setStato('errore');
+  };
+  const rip = async () => {
+    setStato('work');
+    const r = await ripristina();
+    if (r==='ok') { setStato('ok'); onSbloccato(); }
+    else if (r==='niente') setStato('niente');
+    else setStato('errore');
+  };
+
+  return (
+    <Modal title={t('premium_title')} onClose={onClose}>
+      <div className="text-center py-4">
+        <p className="text-5xl mb-3">✨</p>
+        <p className="font-black text-gray-800 text-lg">{t('premium_name')}</p>
+        <p className="text-sm text-gray-500 mt-2 px-4">{t('premium_desc',MAX_GRATIS,MAX_PREMIUM)}</p>
+      </div>
+
+      <div className="rounded-2xl p-4 mb-4" style={{background:'#fffbeb'}}>
+        {[t('premium_b1',MAX_PREMIUM), t('premium_b2'), t('premium_b3')].map((b,i)=>(
+          <p key={i} className="text-sm text-gray-700 flex items-start gap-2 mb-1.5 last:mb-0">
+            <span style={{color:'#b45309'}}>✓</span><span>{b}</span>
+          </p>
+        ))}
+      </div>
+
+      {stato==='ok' ? (
+        <div className="text-center py-4">
+          <p className="text-4xl mb-2">🎉</p>
+          <p className="font-bold text-gray-800">{t('premium_ok')}</p>
+        </div>
+      ) : !disponibile ? (
+        <p className="text-xs text-gray-400 text-center py-4">{t('premium_unavailable')}</p>
+      ) : (
+        <>
+          <button onClick={compra} disabled={stato==='work'}
+            className="w-full py-3.5 rounded-2xl font-bold text-white text-sm disabled:opacity-50"
+            style={{background:'linear-gradient(135deg,#b45309,#f59e0b)'}}>
+            {stato==='work' ? '⏳' : (p ? t('premium_buy_price',p) : t('premium_buy'))}
+          </button>
+          <button onClick={rip} disabled={stato==='work'} className="w-full py-2.5 mt-2 text-xs font-bold text-gray-400">
+            {t('premium_restore')}
+          </button>
+          {stato==='errore'&&<p className="text-xs text-red-500 text-center mt-2">{t('premium_error')}</p>}
+          {stato==='niente'&&<p className="text-xs text-gray-400 text-center mt-2">{t('premium_none')}</p>}
+        </>
+      )}
+      <p className="text-xs text-gray-300 text-center mt-4">{t('premium_note')}</p>
+    </Modal>
+  );
+}
+
+function SettingsModal({lang, onLang, promemoria, onPromemoria, onExport, onReferto, onStat, onCartella, cartella, premium, onPremium, onClose}) {
   const [info, setInfo] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -1491,6 +1786,8 @@ function SettingsModal({lang, onLang, promemoria, onPromemoria, onExport, onCart
         </button>
       </div>
       {msg&&<p className="text-xs text-gray-400 px-2 -mt-1 mb-2">{msg}</p>}
+      <Row icon="📊" label={t('stats_title')} desc={t('stats_row_desc')} onClick={onStat}/>
+      <Row icon="📄" label={t('pdf_modal_title')} desc={t('pdf_row_desc')} onClick={onReferto}/>
       <Row icon="📥" label={t('set_export')} desc={t('set_export_d')} onClick={onExport}/>
       <Row icon="🌐" label={t('set_lang')} desc={`${curLang.flag} ${curLang.label}`} onClick={()=>setLangOpen(v=>!v)} open={langOpen}/>
       {langOpen&&(
@@ -1506,6 +1803,9 @@ function SettingsModal({lang, onLang, promemoria, onPromemoria, onExport, onCart
           ))}
         </div>
       )}
+      {ACQUISTI_ATTIVI&&<Row icon="✨" label={t('premium_name')}
+        desc={premium ? t('premium_active') : t('premium_row_desc',MAX_PREMIUM)}
+        onClick={onPremium}/>}
       <Row icon="ℹ️" label={t('set_info')} desc={t('version_n',APP_VERSION)} onClick={()=>setInfo(v=>!v)} open={info}/>
       {info&&(
         <div className="rounded-2xl p-4 text-xs text-gray-500 leading-relaxed" style={{background:'#eff6ff'}}>
@@ -1991,6 +2291,7 @@ export default function App() {
   const [problemi, setProblemi] = useState([]);
   const [allergie, setAllergie] = useState([]);
   const [cartella, setCartella] = useState(null);
+  const [premium, setPremiumState] = useState(false);
   const [problemaAperto, setProblemaAperto] = useState(null);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
@@ -2008,6 +2309,11 @@ export default function App() {
       } catch(e){}
       try { const r=await window.storage.get('ht-promemoria'); if(r?.value==='1') setPromemoria(true); } catch(e){}
       try { const r=await window.storage.get('ht-cartella'); if(r?.value) setCartella(JSON.parse(r.value)); } catch(e){}
+      try {
+        const { caricaStato, inizializza } = await import('./acquisti');
+        setPremiumState(await caricaStato());
+        inizializza(p=>setPremiumState(p));   // in sottofondo: allinea con l'App Store
+      } catch(e){}
       for (const [k,fn] of [['ht-visite',setVisite],['ht-analisi',setAnalisi],['ht-allenamenti',setAllenamenti],['ht-ricette',setRicette],['ht-note',setNote],['ht-terapie',setTerapie],['ht-problemi',setProblemi],['ht-allergie',setAllergie]]) {
         try { const r=await window.storage.get(k); if(r) fn(JSON.parse(r.value)); } catch(e){}
       }
@@ -2210,7 +2516,14 @@ export default function App() {
       {modal?.t==='editT'   && <TerapiaModal iniziale={modal.d} problemi={problemi} onSave={d=>edit('ht-terapie',setTerapie,d)} onClose={()=>setModal(null)}/>}
       {modal==='export'   && <ExportModal visite={visite} analisi={analisi} vitali={vitali} onClose={()=>setModal(null)}/>}
       {modal==='settings' && <SettingsModal lang={lang} onLang={changeLang} promemoria={promemoria} onPromemoria={cambiaPromemoria}
-        onExport={()=>setModal('export')} cartella={cartella} onCartella={()=>setModal('cartella')} onClose={()=>setModal(null)}/>}
+        onExport={()=>setModal('export')} onReferto={()=>setModal('referto')} onStat={()=>setModal('statistiche')}
+        cartella={cartella} onCartella={()=>setModal('cartella')}
+        premium={premium} onPremium={()=>setModal('premium')} onClose={()=>setModal(null)}/>}
+      {modal==='premium' && <PremiumModal onSbloccato={()=>setPremiumState(true)} onClose={()=>setModal(null)}/>}
+      {modal==='referto' && <RefertoModal dati={{cartella,allergie,terapie,analisi,visite,vitali,problemi}}
+        onPremium={()=>setModal('premium')} onClose={()=>setModal(null)}/>}
+      {modal==='statistiche' && <StatisticheModal dati={{analisi,vitali,allenamenti}}
+        onPremium={()=>setModal('premium')} onClose={()=>setModal(null)}/>}
       {modal==='cartella' && <CartellaModal dati={cartella} allergie={allergie}
         ultimoPeso={vitali.find(v=>v.tipo==='Peso')?.valore ?? null}
         onSave={async d=>{ setCartella(d); try{ await window.storage.set('ht-cartella', JSON.stringify(d)); }catch(e){} setModal(null); }}
