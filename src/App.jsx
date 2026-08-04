@@ -2043,62 +2043,177 @@ function ExportModal({visite,analisi,vitali,onClose}) {
 }
 
 // --- Views ---
-function Dashboard({visite, analisi, vitali}) {
-  const lv=visite[0], la=analisi[0];
+function Dashboard({visite, analisi, vitali, terapie, problemi, cartella, onGo, onNuovo, onApri}) {
+  const oggiD = new Date();
+  const oggi = oggiD.toISOString().slice(0,10);
+  const giorni = d => Math.round((new Date(d) - new Date(oggi)) / 86400000);
+  const ora = oggiD.getHours()*60 + oggiD.getMinutes();
+
+  const lv=visite.find(v=>v.data<oggi), la=analisi[0];
   const abn=(la?.params||[]).filter(isAbn).length;
   const lp=vitali.find(v=>v.tipo==='Peso'), lfc=vitali.find(v=>v.tipo==='Frequenza cardiaca');
+  const prossime = visite.filter(v=>v.data>=oggi).sort((a,b)=>a.data.localeCompare(b.data)).slice(0,3);
+  const percorsi = problemi.filter(p=>p.stato!=='risolto');
+  const vuoto = !visite.length && !analisi.length && !vitali.length && !terapie.length;
+
+  // Farmaci di oggi, con quelli già passati marcati
+  const dosiOggi = terapie
+    .filter(x=>x.promemoria && x.orari?.length && (!x.fine || x.fine>=oggi) && (!x.inizio || x.inizio<=oggi))
+    .flatMap(x=>x.orari.map(o=>{ const [h,m]=String(o).split(':').map(Number); return {x, o, min:h*60+m}; }))
+    .sort((a,b)=>a.min-b.min);
+
+  const saluto = ora<300 ? 'greet_night' : ora<720 ? 'greet_morning' : ora<1080 ? 'greet_afternoon' : 'greet_evening';
+
+  const AZIONI = [
+    {id:'visita',   i:'👨‍⚕️', l:'visits_title',   c:'#eff6ff'},
+    {id:'analisi',  i:'🩸',   l:'tests_title',    c:'#fff1f2'},
+    {id:'vitale',   i:'💓',   l:'vitals_title',   c:'#fdf4ff'},
+    {id:'nota',     i:'📝',   l:'notes_title',    c:'#fffbeb'},
+    {id:'allenamento', i:'💪', l:'workouts_title', c:'#f0fdf4'},
+  ];
+
+  const Riquadro = ({v,l,bg,c,i,tab}) => (
+    <button onClick={()=>onGo(tab)} className="rounded-2xl p-4 text-left active:scale-95 transition-transform" style={{background:bg}}>
+      <div className="text-xl mb-1">{i}</div>
+      <div className="text-3xl font-black" style={{color:c}}>{v}</div>
+      <div className="text-xs font-semibold mt-0.5" style={{color:c,opacity:.7}}>{l}</div>
+    </button>
+  );
+
   return (
     <div>
-      <div className="grid grid-cols-2 gap-3 mb-6">
-        {[{v:visite.length,l:t('stat_visite'),bg:'#eff6ff',c:'#1e40af',i:'👨‍⚕️'},{v:analisi.length,l:t('stat_analisi'),bg:'#fff1f2',c:'#be123c',i:'🩸'},{v:vitali.length,l:t('stat_mis'),bg:'#fdf4ff',c:'#7e22ce',i:'💓'},{v:abn,l:abn>0?t('stat_anom'):t('stat_ok'),bg:abn>0?'#fffbeb':'#f0fdf4',c:abn>0?'#92400e':'#166534',i:abn>0?'⚠️':'✅'}].map(s=>(
-          <div key={s.l} className="rounded-2xl p-4" style={{background:s.bg}}>
-            <div className="text-xl mb-1">{s.i}</div>
-            <div className="text-3xl font-black" style={{color:s.c}}>{s.v}</div>
-            <div className="text-xs font-semibold mt-0.5" style={{color:s.c,opacity:.7}}>{s.l}</div>
-          </div>
+      <div className="mb-4">
+        <p className="text-lg font-black text-gray-800">
+          {cartella?.nome ? t(saluto+'_name', String(cartella.nome).split(' ')[0]) : t(saluto)}
+        </p>
+        <p className="text-xs text-gray-400">{oggiD.toLocaleDateString(locale(),{weekday:'long',day:'numeric',month:'long'})}</p>
+      </div>
+
+      {/* Azioni rapide */}
+      <div className="flex gap-2 overflow-x-auto pb-2 mb-5" style={{scrollbarWidth:'none'}}>
+        {AZIONI.map(a=>(
+          <button key={a.id} onClick={()=>onNuovo(a.id)}
+            className="flex-shrink-0 flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl text-xs font-bold text-gray-700 active:scale-95 transition-transform"
+            style={{background:a.c}}>
+            <span className="text-base">{a.i}</span> + {t(a.l)}
+          </button>
         ))}
       </div>
-      <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">{t('recent')}</p>
-      <div className="space-y-3">
-        {lv&&(
-          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50">
-            <div className="flex items-center gap-2 mb-1.5">
-              <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{background:'#eff6ff',color:'#1e40af'}}>{tv(lv.spec)}</span>
-              {lv.allegati?.length>0&&<span className="text-xs text-blue-300">📎 {lv.allegati.length}</span>}
-              <span className="ml-auto text-xs text-gray-400">{fmt(lv.data)}</span>
+
+      {vuoto ? (
+        <div className="text-center py-14">
+          <p className="text-6xl mb-4">🏥</p>
+          <p className="text-gray-400 font-semibold">{t('empty_title')}</p>
+          <p className="text-gray-300 text-sm mt-1 px-8">{t('home_empty_sub')}</p>
+        </div>
+      ) : (
+        <>
+          {/* Farmaci di oggi */}
+          {dosiOggi.length>0&&(
+            <div className="rounded-2xl p-4 mb-4" style={{background:'#f0fdfa'}}>
+              <p className="text-xs font-black uppercase tracking-wider mb-2" style={{color:'#0f766e'}}>💊 {t('home_today_meds')}</p>
+              <div className="space-y-1.5">
+                {dosiOggi.map((d,i)=>{
+                  const passato = d.min <= ora;
+                  return (
+                    <button key={i} onClick={()=>onGo('diario')} className={`w-full flex items-center gap-2 bg-white/70 rounded-xl px-3 py-2 text-left ${passato?'opacity-50':''}`}>
+                      <span className="text-sm font-black" style={{color:'#0f766e'}}>{d.o}</span>
+                      <span className="text-sm text-gray-700 flex-1 truncate">{d.x.farmaco}</span>
+                      {d.x.dose&&<span className="text-xs text-gray-400">{d.x.dose}</span>}
+                      {passato&&<span className="text-xs text-gray-300">✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <p className="font-bold text-gray-800 text-sm">Dr. {lv.medico}</p>
-            {lv.diagnosi&&<p className="text-xs text-gray-500 mt-0.5">{lv.diagnosi}</p>}
-          </div>
-        )}
-        {la&&(
-          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50">
-            <div className="flex items-center gap-2 mb-1.5">
-              <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{background:'#fff1f2',color:'#be123c'}}>{t('last_test')}</span>
-              {la.allegati?.length>0&&<span className="text-xs text-blue-300">📎 {la.allegati.length}</span>}
-              <span className="ml-auto text-xs text-gray-400">{fmt(la.data)}</span>
+          )}
+
+          {/* Prossime visite */}
+          {prossime.length>0&&(
+            <div className="mb-4">
+              <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2">📅 {t('home_next')}</p>
+              <div className="space-y-2">
+                {prossime.map(v=>{
+                  const g = giorni(v.data);
+                  return (
+                    <button key={v.id} onClick={()=>onApri('visita',v)} className="w-full bg-white rounded-2xl p-3.5 shadow-sm border border-gray-50 flex items-center gap-3 text-left hover:shadow-md transition-all" style={{borderLeft:'3px solid #3b82f6'}}>
+                      <span className="rounded-xl px-2.5 py-1.5 text-center flex-shrink-0" style={{background:'#eff6ff'}}>
+                        <span className="block text-sm font-black" style={{color:'#1e40af'}}>{g===0?t('home_today'):g===1?t('home_tomorrow'):`${g}`}</span>
+                        {g>1&&<span className="block text-xs" style={{color:'#1e40af',opacity:.6}}>{t('home_days')}</span>}
+                      </span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-sm font-bold text-gray-800 truncate">Dr. {v.medico}</span>
+                        <span className="block text-xs text-gray-400 truncate">{tv(v.spec)} · {fmt(v.data)}</span>
+                      </span>
+                      <span className="text-gray-300">›</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <p className="font-bold text-gray-800 text-sm">{t('params_n',(la.params||[]).length)}</p>
-            <p className={`text-xs mt-0.5 ${abn>0?'text-red-500':'text-green-500'}`}>{abn>0?t('out_range',abn):t('all_ok')}</p>
+          )}
+
+          {/* Riquadri riepilogo */}
+          <div className="grid grid-cols-2 gap-3 mb-5">
+            <Riquadro v={visite.length} l={t('stat_visite')} bg="#eff6ff" c="#1e40af" i="👨‍⚕️" tab="visite"/>
+            <Riquadro v={analisi.length} l={t('stat_analisi')} bg="#fff1f2" c="#be123c" i="🩸" tab="analisi"/>
+            <Riquadro v={vitali.length} l={t('stat_mis')} bg="#fdf4ff" c="#7e22ce" i="💓" tab="vitali"/>
+            <Riquadro v={abn} l={abn>0?t('stat_anom'):t('stat_ok')} bg={abn>0?'#fffbeb':'#f0fdf4'} c={abn>0?'#92400e':'#166534'} i={abn>0?'⚠️':'✅'} tab="analisi"/>
           </div>
-        )}
-        {(lp||lfc)&&(
-          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50">
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('last_vitals')}</p>
-            <div className="flex gap-5">
-              {lp&&<div><p className="text-2xl font-black text-blue-600">{lp.valore} <span className="text-sm font-normal text-gray-400">kg</span></p><p className="text-xs text-gray-400">{tv('Peso')} · {fmt(lp.data)}</p></div>}
-              {lfc&&<div><p className="text-2xl font-black text-pink-500">{lfc.valore} <span className="text-sm font-normal text-gray-400">bpm</span></p><p className="text-xs text-gray-400">{t('hr_short')} · {fmt(lfc.data)}</p></div>}
+
+          {/* Percorsi aperti */}
+          {percorsi.length>0&&(
+            <div className="mb-5">
+              <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2">📔 {t('open_s',percorsi.length).replace('🔶 ','')}</p>
+              <div className="flex gap-2 overflow-x-auto pb-1" style={{scrollbarWidth:'none'}}>
+                {percorsi.map(p=>(
+                  <button key={p.id} onClick={()=>onApri('percorso',p)}
+                    className="flex-shrink-0 rounded-2xl px-4 py-3 text-left max-w-[70%]" style={{background:'#fff7ed'}}>
+                    <p className="text-sm font-bold text-gray-800 truncate">{p.titolo}</p>
+                    <p className="text-xs text-gray-400">{t('since')} {fmt(p.data)}</p>
+                  </button>
+                ))}
+              </div>
             </div>
+          )}
+
+          {/* Aggiornamenti recenti */}
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">{t('recent')}</p>
+          <div className="space-y-3">
+            {lv&&(
+              <button onClick={()=>onApri('visita',lv)} className="w-full text-left bg-white rounded-2xl p-4 shadow-sm border border-gray-50 hover:shadow-md transition-all">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{background:'#eff6ff',color:'#1e40af'}}>{tv(lv.spec)}</span>
+                  {lv.allegati?.length>0&&<span className="text-xs text-blue-300">📎 {lv.allegati.length}</span>}
+                  <span className="ml-auto text-xs text-gray-400">{fmt(lv.data)}</span>
+                </div>
+                <p className="font-bold text-gray-800 text-sm">Dr. {lv.medico}</p>
+                {lv.diagnosi&&<p className="text-xs text-gray-500 mt-0.5">{lv.diagnosi}</p>}
+              </button>
+            )}
+            {la&&(
+              <button onClick={()=>onApri('analisi',la)} className="w-full text-left bg-white rounded-2xl p-4 shadow-sm border border-gray-50 hover:shadow-md transition-all">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{background:'#fff1f2',color:'#be123c'}}>{t('last_test')}</span>
+                  {la.allegati?.length>0&&<span className="text-xs text-blue-300">📎 {la.allegati.length}</span>}
+                  <span className="ml-auto text-xs text-gray-400">{fmt(la.data)}</span>
+                </div>
+                <p className="font-bold text-gray-800 text-sm">{t('params_n',(la.params||[]).length)}</p>
+                <p className={`text-xs mt-0.5 ${abn>0?'text-red-500':'text-green-500'}`}>{abn>0?t('out_range',abn):t('all_ok')}</p>
+              </button>
+            )}
+            {(lp||lfc)&&(
+              <button onClick={()=>onGo('vitali')} className="w-full text-left bg-white rounded-2xl p-4 shadow-sm border border-gray-50 hover:shadow-md transition-all">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('last_vitals')}</p>
+                <div className="flex gap-5">
+                  {lp&&<div><p className="text-2xl font-black text-blue-600">{lp.valore} <span className="text-sm font-normal text-gray-400">kg</span></p><p className="text-xs text-gray-400">{tv('Peso')} · {fmt(lp.data)}</p></div>}
+                  {lfc&&<div><p className="text-2xl font-black text-pink-500">{lfc.valore} <span className="text-sm font-normal text-gray-400">bpm</span></p><p className="text-xs text-gray-400">{t('hr_short')} · {fmt(lfc.data)}</p></div>}
+                </div>
+              </button>
+            )}
           </div>
-        )}
-        {!lv&&!la&&!lp&&(
-          <div className="text-center py-16">
-            <p className="text-6xl mb-4">🏥</p>
-            <p className="text-gray-400 font-semibold">{t('empty_title')}</p>
-            <p className="text-gray-300 text-sm mt-1">{t('empty_sub')}</p>
-          </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }
@@ -2583,7 +2698,14 @@ export default function App() {
 
       <div className="flex-1 overflow-y-auto" style={{paddingBottom:'calc(80px + env(safe-area-inset-bottom))'}}>
         <div className="px-4 py-5 max-w-lg mx-auto">
-          {tab==='home'    && <Dashboard visite={visite} analisi={analisi} vitali={vitali}/>}
+          {tab==='home'    && <Dashboard visite={visite} analisi={analisi} vitali={vitali} terapie={terapie} problemi={problemi} cartella={cartella}
+            onGo={id=>{setProblemaAperto(null); setTab(id);}}
+            onNuovo={id=>setModal(id)}
+            onApri={(tipo,d)=>{
+              if (tipo==='visita') setModal({t:'viewV',d});
+              else if (tipo==='analisi') setModal({t:'viewA',d});
+              else if (tipo==='percorso') { setProblemaAperto(d); setTab('diario'); }
+            }}/>}
           {tab==='visite'  && <Visite visite={visite} onAdd={()=>setModal('visita')} onDel={id=>del('ht-visite',setVisite,id)} onView={v=>setModal({t:'viewV',d:v})}/>}
           {tab==='analisi' && <AnalisiView analisi={analisi} onAdd={()=>setModal('analisi')} onDel={id=>del('ht-analisi',setAnalisi,id)} onView={a=>setModal({t:'viewA',d:a})}/>}
           {tab==='vitali'  && <VitaliView vitali={vitali} onAdd={()=>setModal('vitale')} onEdit={v=>setModal({t:'editVit',d:v})} onDel={id=>del('ht-vitali',setVitali,id)}/>}
