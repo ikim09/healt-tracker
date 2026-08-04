@@ -711,12 +711,20 @@ function RicetteView({ricette, onAdd, onToggle, onEdit, onDel}) {
   );
 }
 
-function TerapiaModal({iniziale, problemaId, problemi=[], onSave, onClose}) {
+function TerapiaModal({iniziale, problemaId, problemi=[], onPremium, onClose, onSave}) {
   const oggi = new Date().toISOString().slice(0,10);
   const [f, sf] = useState(iniziale
-    ? {...iniziale, fine:iniziale.fine||'', dose:iniziale.dose||'', note:iniziale.note||''}
-    : {inizio:oggi,fine:'',farmaco:'',dose:'',frequenza:FREQ[0],note:'',problemaId:problemaId||null});
+    ? {...iniziale, fine:iniziale.fine||'', dose:iniziale.dose||'', note:iniziale.note||'', orari:iniziale.orari||[], promemoria:!!iniziale.promemoria}
+    : {inizio:oggi,fine:'',farmaco:'',dose:'',frequenza:FREQ[0],note:'',problemaId:problemaId||null,orari:[],promemoria:false});
   const ok = f.inizio && f.farmaco.trim();
+  const bloccato = ACQUISTI_ATTIVI && !isPremium();
+
+  const setOrario = (i,v) => sf(p=>({...p, orari:p.orari.map((o,j)=>j===i?v:o)}));
+  const aggiungiOrario = () => {
+    if (bloccato) { onPremium?.(); return; }
+    sf(p=>({...p, orari:[...p.orari, p.orari.length?'20:00':'08:00'].slice(0,4), promemoria:true}));
+  };
+  const togliOrario = i => sf(p=>{ const o=p.orari.filter((_,j)=>j!==i); return {...p, orari:o, promemoria:o.length>0&&p.promemoria}; });
   return (
     <Modal title={iniziale?t('edit_therapy'):t('new_therapy')} onClose={onClose} onSave={ok?()=>onSave({...f,data:f.inizio}):null}
       saveLabel={ok?(iniziale?t('save_changes'):t('save_therapy')):t('need_therapy')} saveBg="linear-gradient(135deg,#0f766e,#14b8a6)">
@@ -728,6 +736,36 @@ function TerapiaModal({iniziale, problemaId, problemi=[], onSave, onClose}) {
         <Inp lbl={t('end_l')} type="date" value={f.fine} onChange={e=>sf(p=>({...p,fine:e.target.value}))}/>
       </div>
       <p className="text-xs text-gray-300 -mt-1 mb-3">{t('end_hint')}</p>
+
+      <div className="rounded-2xl p-3 mb-3" style={{background:'#f0fdfa'}}>
+        <div className="flex items-center justify-between mb-1">
+          <p className="text-xs font-black uppercase tracking-wider" style={{color:'#0f766e'}}>🔔 {t('med_reminders')}</p>
+          {f.orari.length>0&&(
+            <button onClick={()=>sf(p=>({...p,promemoria:!p.promemoria}))}
+              className="w-11 h-6 rounded-full relative transition-colors"
+              style={{background:f.promemoria?'#0f766e':'#d1d5db'}}>
+              <span className="absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all" style={{left:f.promemoria?'26px':'4px'}}/>
+            </button>
+          )}
+        </div>
+        {f.orari.length===0
+          ? <p className="text-xs text-gray-400 mb-2">{t('med_reminders_hint')}</p>
+          : <div className="space-y-1.5 mb-2">
+              {f.orari.map((o,i)=>(
+                <div key={i} className="flex items-center gap-2">
+                  <input type="time" value={o} onChange={e=>setOrario(i,e.target.value)}
+                    className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"/>
+                  <button onClick={()=>togliOrario(i)} className="text-gray-300 hover:text-red-400 font-bold text-lg px-1">×</button>
+                </div>
+              ))}
+            </div>}
+        {f.orari.length<4&&(
+          <button onClick={aggiungiOrario} className="text-xs font-bold" style={{color:'#0f766e'}}>
+            {bloccato?`✨ ${t('med_unlock')}`:`+ ${t('med_add_time')}`}
+          </button>
+        )}
+      </div>
+
       {iniziale&&problemi.length>0&&(
         <div className="mb-3">
           <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{t('linked_problem')}</label>
@@ -753,7 +791,10 @@ function TerapiaCard({x, onEdit, onDel, conclusa}) {
           <p className={`font-bold ${conclusa?'text-gray-400':'text-gray-800'}`}>{x.farmaco}</p>
           {x.dose&&<span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{background:'#f0fdfa',color:'#0f766e'}}>{x.dose}</span>}
         </div>
-        <p className="text-xs text-gray-500 mt-0.5">{tv(x.frequenza)}</p>
+        <p className="text-xs text-gray-500 mt-0.5">
+          {tv(x.frequenza)}
+          {x.promemoria&&x.orari?.length>0&&<span className="ml-2" style={{color:'#0f766e'}}>🔔 {x.orari.join(' · ')}</span>}
+        </p>
         <p className="text-xs text-gray-400 mt-0.5">{fmt(x.inizio)}{x.fine?` → ${fmt(x.fine)}`:` → ${t('ongoing')}`}</p>
         {x.note&&<p className="text-sm text-gray-500 mt-1">{x.note}</p>}
       </div>
@@ -2365,28 +2406,30 @@ export default function App() {
   const toggleRicetta = id => setRicette(prev=>{ const u=prev.map(r=>r.id===id?{...r,usata:!r.usata}:r); sv('ht-ricette',u); return u; });
   const toggleNota = id => setNote(prev=>{ const u=prev.map(n=>n.id===id?{...n,archiviata:!n.archiviata}:n); sv('ht-note',u); return u; });
 
-  // Riprogramma i promemoria quando cambiano le visite o l'impostazione
+  // Riprogramma i promemoria quando cambiano visite, terapie o l'impostazione
   useEffect(()=>{
-    if (loading || !promemoria) return;
+    if (loading) return;
+    const conOrari = terapie.some(x=>x.promemoria && x.orari?.length);
+    if (!promemoria && !conOrari) return;
     (async()=>{
       const { aggiornaPromemoria } = await import('./promemoria');
-      await aggiornaPromemoria(visite, true);
+      await aggiornaPromemoria(visite, promemoria, terapie);
     })();
-  },[visite, promemoria, loading]);
+  },[visite, terapie, promemoria, loading]);
 
   const cambiaPromemoria = async attiva => {
     const { notificheDisponibili, chiediPermesso, aggiornaPromemoria } = await import('./promemoria');
     if (!attiva) {
       setPromemoria(false);
       try { await window.storage.set('ht-promemoria','0'); } catch(e){}
-      await aggiornaPromemoria([], false);
+      await aggiornaPromemoria([], false, terapie);
       return null;
     }
     if (!(await notificheDisponibili())) return t('notif_unavailable');
     if (!(await chiediPermesso())) return t('notif_denied');
     setPromemoria(true);
     try { await window.storage.set('ht-promemoria','1'); } catch(e){}
-    const r = await aggiornaPromemoria(visite, true);
+    const r = await aggiornaPromemoria(visite, true, terapie);
     return r.n>0 ? t('notif_set',r.n) : t('notif_none');
   };
 
@@ -2481,7 +2524,7 @@ export default function App() {
       {modal==='allenamento' && <AllenamentoModal onSave={d=>add('ht-allenamenti',setAllenamenti,d)} onClose={()=>setModal(null)}/>}
       {modal==='ricetta'  && <RicettaModal onSave={d=>add('ht-ricette',setRicette,d)} onClose={()=>setModal(null)}/>}
       {modal==='nota'     && <NotaModal onSave={d=>add('ht-note',setNote,d)} onClose={()=>setModal(null)}/>}
-      {modal?.t==='newTer' && <TerapiaModal problemaId={modal.d} onSave={d=>add('ht-terapie',setTerapie,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='newTer' && <TerapiaModal problemaId={modal.d} onPremium={()=>setModal('premium')} onSave={d=>add('ht-terapie',setTerapie,d)} onClose={()=>setModal(null)}/>}
       {modal==='allergia' && <AllergiaModal onSave={d=>add('ht-allergie',setAllergie,d)} onClose={()=>setModal(null)}/>}
       {modal?.t==='editAl' && <AllergiaModal iniziale={modal.d} onSave={d=>edit('ht-allergie',setAllergie,d)} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewAl' && <ViewAllergiaModal a={modal.d} onEdit={a=>setModal({t:'editAl',d:a})} onClose={()=>setModal(null)}/>}
@@ -2513,7 +2556,7 @@ export default function App() {
       {modal?.t==='editS'   && <AllenamentoModal iniziale={modal.d} onSave={d=>edit('ht-allenamenti',setAllenamenti,d)} onClose={()=>setModal(null)}/>}
       {modal?.t==='editR'   && <RicettaModal iniziale={modal.d} onSave={d=>edit('ht-ricette',setRicette,d)} onClose={()=>setModal(null)}/>}
       {modal?.t==='editN'   && <NotaModal iniziale={modal.d} onSave={d=>edit('ht-note',setNote,d)} onClose={()=>setModal(null)}/>}
-      {modal?.t==='editT'   && <TerapiaModal iniziale={modal.d} problemi={problemi} onSave={d=>edit('ht-terapie',setTerapie,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='editT'   && <TerapiaModal iniziale={modal.d} problemi={problemi} onPremium={()=>setModal('premium')} onSave={d=>edit('ht-terapie',setTerapie,d)} onClose={()=>setModal(null)}/>}
       {modal==='export'   && <ExportModal visite={visite} analisi={analisi} vitali={vitali} onClose={()=>setModal(null)}/>}
       {modal==='settings' && <SettingsModal lang={lang} onLang={changeLang} promemoria={promemoria} onPromemoria={cambiaPromemoria}
         onExport={()=>setModal('export')} onReferto={()=>setModal('referto')} onStat={()=>setModal('statistiche')}
