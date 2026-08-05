@@ -718,16 +718,21 @@ function VitaleModal({iniziale, onSave, onClose}) {
 
 function AllenamentoModal({iniziale, onSave, onClose}) {
   const [f, sf] = useState(iniziale
-    ? {...iniziale, durata:String(iniziale.durata??''), note:iniziale.note||''}
-    : {data:'',tipo:SPORT[0].n,durata:'',note:''});
+    ? {...iniziale, durata:String(iniziale.durata??''), calorie:iniziale.calorie??'', note:iniziale.note||''}
+    : {data:'',tipo:SPORT[0].n,durata:'',calorie:'',note:''});
   const num = parseFloat(String(f.durata).replace(',','.'));
+  const kcal = parseFloat(String(f.calorie).replace(',','.'));
   const ok = f.data && f.durata && !isNaN(num) && num>0;
+  const salva = () => onSave({...f, durata:Math.round(num), calorie: (f.calorie!=='' && !isNaN(kcal) && kcal>0) ? Math.round(kcal) : null});
   return (
-    <Modal title={iniziale?t('edit_workout'):t('new_workout')} onClose={onClose} onSave={ok?()=>onSave({...f,durata:Math.round(num)}):null}
+    <Modal title={iniziale?t('edit_workout'):t('new_workout')} onClose={onClose} onSave={ok?salva:null}
       saveLabel={ok?(iniziale?t('save_changes'):t('save_workout')):t('need_workout')} saveBg="linear-gradient(135deg,#15803d,#22c55e)">
       <Inp lbl={t('date_l')} type="date" value={f.data} onChange={e=>sf(p=>({...p,data:e.target.value}))}/>
       <SelAltro lbl={t('activity_l')} opts={SPORT.map(s=>s.n)} value={f.tipo} onChange={v=>sf(p=>({...p,tipo:v}))} placeholder={t('sport_altro_ph')}/>
-      <Inp lbl={t('duration_l')} type="text" inputMode="numeric" placeholder={t('duration_ph')} value={f.durata} onChange={e=>sf(p=>({...p,durata:e.target.value}))}/>
+      <div className="grid grid-cols-2 gap-3">
+        <Inp lbl={t('duration_l')} type="text" inputMode="numeric" placeholder={t('duration_ph')} value={f.durata} onChange={e=>sf(p=>({...p,durata:e.target.value}))}/>
+        <Inp lbl={t('kcal_l')} type="text" inputMode="numeric" placeholder={t('kcal_ph')} value={f.calorie} onChange={e=>sf(p=>({...p,calorie:e.target.value}))}/>
+      </div>
       <Txt lbl={t('notes_l')} placeholder={t('workout_notes_ph')} value={f.note} onChange={e=>sf(p=>({...p,note:e.target.value}))}/>
     </Modal>
   );
@@ -739,6 +744,7 @@ function AllenamentiView({allenamenti, onAdd, onEdit, onDel}) {
   const lunStr = `${lun.getFullYear()}-${String(lun.getMonth()+1).padStart(2,'0')}-${String(lun.getDate()).padStart(2,'0')}`;
   const sett = allenamenti.filter(a=>a.data>=lunStr);
   const minSett = sett.reduce((s,a)=>s+(a.durata||0),0);
+  const kcalSett = sett.reduce((s,a)=>s+(Number(a.calorie)||0),0);
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
@@ -749,6 +755,10 @@ function AllenamentiView({allenamenti, onAdd, onEdit, onDel}) {
         <div><p className="text-2xl font-black text-green-700">{sett.length}</p><p className="text-xs text-gray-500">{t('this_week')}</p></div>
         <div className="w-px h-8 bg-green-200"/>
         <div><p className="text-2xl font-black text-green-700">{minSett}<span className="text-sm font-bold"> min</span></p><p className="text-xs text-gray-500">{t('total_time')}</p></div>
+        {kcalSett>0&&<>
+          <div className="w-px h-8 bg-green-200"/>
+          <div><p className="text-2xl font-black" style={{color:'#c2410c'}}>{kcalSett}</p><p className="text-xs text-gray-500">kcal</p></div>
+        </>}
       </div>
       {allenamenti.length===0?(
         <div className="text-center py-12"><p className="text-5xl mb-3">💪</p><p className="text-gray-400">{t('no_workouts')}</p></div>
@@ -761,6 +771,7 @@ function AllenamentiView({allenamenti, onAdd, onEdit, onDel}) {
                 <div className="flex items-center gap-2 flex-wrap">
                   <p className="font-bold text-gray-800">{tv(a.tipo)}</p>
                   <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{background:'#f0fdf4',color:'#15803d'}}>{a.durata} min</span>
+                  {a.calorie>0&&<span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{background:'#fff7ed',color:'#c2410c'}}>🔥 {a.calorie} kcal</span>}
                 </div>
                 <p className="text-xs text-gray-400 mt-0.5">{fmt(a.data)}</p>
                 {a.note&&<p className="text-sm text-gray-500 mt-0.5 truncate">{a.note}</p>}
