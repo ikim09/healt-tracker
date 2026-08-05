@@ -97,6 +97,27 @@ const Sel = ({lbl,opts,...p}) => (
     </select>
   </div>
 );
+// Menù a tendina con "Altro": scegliendolo compare un campo per scrivere di cosa si tratta.
+// Il testo scritto viene salvato al posto di "Altro", così si legge ovunque.
+const SelAltro = ({lbl, opts, value, onChange, placeholder}) => {
+  const standard = opts.includes(value);
+  const scelta = standard ? value : 'Altro';
+  const libero = standard ? '' : (value || '');
+  return (
+    <div className="mb-3">
+      {lbl&&<label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{lbl}</label>}
+      <select value={scelta} onChange={e=>onChange(e.target.value)}
+        className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:bg-white transition-all">
+        {opts.map(o=><option key={o} value={o}>{tv(o)}</option>)}
+      </select>
+      {scelta==='Altro'&&(
+        <input autoFocus={!libero} value={libero} placeholder={placeholder}
+          onChange={e=>onChange(e.target.value || 'Altro')}
+          className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm bg-gray-50 mt-2 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:bg-white transition-all"/>
+      )}
+    </div>
+  );
+};
 const Txt = ({lbl,...p}) => (
   <div className="mb-3">
     {lbl&&<label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{lbl}</label>}
@@ -458,7 +479,7 @@ function VisitaModal({iniziale, onSave, onClose}) {
       saveLabel={ok?(iniziale?t('save_changes'):t('save_visit')):t('need_visit')}>
       <Inp lbl={t('date_l')} type="date" value={f.data} onChange={e=>s('data',e.target.value)}/>
       <Inp lbl={t('doctor_l')} placeholder={t('doctor_ph')} value={f.medico} onChange={e=>s('medico',e.target.value)}/>
-      <Sel lbl={t('spec_l')} opts={SPEC} value={f.spec} onChange={e=>s('spec',e.target.value)}/>
+      <SelAltro lbl={t('spec_l')} opts={SPEC} value={f.spec} onChange={v=>s('spec',v)} placeholder={t('spec_altro_ph')}/>
       <Inp lbl={t('diag_l')} placeholder={t('diag_ph')} value={f.diagnosi} onChange={e=>s('diagnosi',e.target.value)}/>
       <Inp lbl={t('cost_l')} type="text" inputMode="decimal" placeholder={t('cost_ph')} value={f.costo} onChange={e=>s('costo',e.target.value)}/>
       <Txt lbl={t('notes_l')} placeholder={t('visit_notes_ph')} value={f.note} onChange={e=>s('note',e.target.value)}/>
@@ -705,7 +726,7 @@ function AllenamentoModal({iniziale, onSave, onClose}) {
     <Modal title={iniziale?t('edit_workout'):t('new_workout')} onClose={onClose} onSave={ok?()=>onSave({...f,durata:Math.round(num)}):null}
       saveLabel={ok?(iniziale?t('save_changes'):t('save_workout')):t('need_workout')} saveBg="linear-gradient(135deg,#15803d,#22c55e)">
       <Inp lbl={t('date_l')} type="date" value={f.data} onChange={e=>sf(p=>({...p,data:e.target.value}))}/>
-      <Sel lbl={t('activity_l')} opts={SPORT.map(s=>s.n)} value={f.tipo} onChange={e=>sf(p=>({...p,tipo:e.target.value}))}/>
+      <SelAltro lbl={t('activity_l')} opts={SPORT.map(s=>s.n)} value={f.tipo} onChange={v=>sf(p=>({...p,tipo:v}))} placeholder={t('sport_altro_ph')}/>
       <Inp lbl={t('duration_l')} type="text" inputMode="numeric" placeholder={t('duration_ph')} value={f.durata} onChange={e=>sf(p=>({...p,durata:e.target.value}))}/>
       <Txt lbl={t('notes_l')} placeholder={t('workout_notes_ph')} value={f.note} onChange={e=>sf(p=>({...p,note:e.target.value}))}/>
     </Modal>
@@ -1003,7 +1024,7 @@ function AllergiaModal({iniziale, onSave, onClose}) {
     <Modal title={iniziale?t('edit_allergy'):t('new_allergy')} onClose={onClose} onSave={ok?()=>onSave(f):null}
       saveLabel={ok?(iniziale?t('save_changes'):t('save_allergy')):t('need_allergy')} saveBg="linear-gradient(135deg,#9f1239,#e11d48)">
       <Inp lbl={t('substance_l')} placeholder={t('substance_ph')} value={f.sostanza} onChange={e=>sf(p=>({...p,sostanza:e.target.value}))}/>
-      <Sel lbl={t('allergy_type_l')} opts={TIPI_ALLERGIA} value={f.tipo} onChange={e=>sf(p=>({...p,tipo:e.target.value}))}/>
+      <SelAltro lbl={t('allergy_type_l')} opts={TIPI_ALLERGIA} value={f.tipo} onChange={v=>sf(p=>({...p,tipo:v}))} placeholder={t('allergia_altro_ph')}/>
       <div className="mb-3">
         <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{t('severity_l')}</label>
         <div className="flex gap-2">
