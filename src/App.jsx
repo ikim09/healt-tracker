@@ -554,7 +554,36 @@ function ScansionaReferto({onFound}) {
   );
 }
 
-function AnalisiModal({iniziale, onSave, onClose}) {
+function NuovoParametroModal({onSave, onClose}) {
+  const [f, sf] = useState({n:'', u:'', min:'', max:''});
+  const ok = f.n.trim();
+  const num = v => { const x=parseFloat(String(v).replace(',','.')); return isNaN(x)?null:x; };
+  const salva = () => {
+    const mn = num(f.min), mx = num(f.max);
+    onSave({
+      n: f.n.trim(), u: f.u.trim(),
+      // solo massimo -> minimo 0 · solo minimo -> nessun limite superiore
+      min: mn ?? (mx!=null ? 0 : undefined),
+      max: mx ?? (mn!=null ? null : undefined),
+      mio: true,
+    });
+  };
+  return (
+    <Modal title={t('np_title')} onClose={onClose} onSave={ok?salva:null}
+      saveLabel={ok?t('np_save'):t('np_need')} saveBg="linear-gradient(135deg,#be123c,#f43f5e)">
+      <Inp lbl={t('np_name')} placeholder={t('np_name_ph')} value={f.n} onChange={e=>sf(p=>({...p,n:e.target.value}))}/>
+      <Inp lbl={t('np_unit')} placeholder={t('np_unit_ph')} value={f.u} onChange={e=>sf(p=>({...p,u:e.target.value}))}/>
+      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{t('np_range')}</p>
+      <div className="grid grid-cols-2 gap-3">
+        <Inp lbl={t('np_min')} type="text" inputMode="decimal" placeholder="0" value={f.min} onChange={e=>sf(p=>({...p,min:e.target.value}))}/>
+        <Inp lbl={t('np_max')} type="text" inputMode="decimal" placeholder="100" value={f.max} onChange={e=>sf(p=>({...p,max:e.target.value}))}/>
+      </div>
+      <p className="text-xs text-gray-300 -mt-1">{t('np_range_hint')}</p>
+    </Modal>
+  );
+}
+
+function AnalisiModal({iniziale, parametri=[], onNuovoParam, onSave, onClose}) {
   const [f, sf] = useState(iniziale
     ? {...iniziale, note:iniziale.note||'', params:[...(iniziale.params||[])], allegati:[]}
     : {data:'',note:'',params:[],allegati:[]});
@@ -562,8 +591,9 @@ function AnalisiModal({iniziale, onSave, onClose}) {
   const [sp, setSp] = useState('');
   const [vp, setVp] = useState('');
   const [dp, setDp] = useState(''); // data del singolo valore, se diversa da quella dell'analisi
+  const TUTTI = [...PARAMS, ...parametri];
   const mkParam = (name,val,data) => {
-    const def=PARAMS.find(p=>p.n===name);
+    const def=TUTTI.find(p=>p.n===name);
     const p={n:name,u:def?.u||'',v:parseFloat(String(val).replace(',','.')),min:def?.min,max:def?.max};
     if (data && data!==f.data) p.d=data;   // salvata solo se davvero diversa
     return p;
@@ -591,9 +621,11 @@ function AnalisiModal({iniziale, onSave, onClose}) {
       <div className="mb-3">
         <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{t('add_param')}</label>
         <div className="flex gap-2 mb-2">
-          <select value={sp} onChange={e=>setSp(e.target.value)} className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-red-400 min-w-0">
+          <select value={sp} onChange={e=>{ if(e.target.value==='__nuovo__'){ onNuovoParam?.(n=>setSp(n)); } else setSp(e.target.value); }}
+            className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-red-400 min-w-0">
             <option value="">{t('choose_param')}</option>
-            {PARAMS.filter(p=>!f.params.find(fp=>fp.n===p.n)).map(p=><option key={p.n} value={p.n}>{tv(p.n)}</option>)}
+            {TUTTI.filter(p=>!f.params.find(fp=>fp.n===p.n)).map(p=><option key={p.n} value={p.n}>{p.mio?p.n:tv(p.n)}</option>)}
+            <option value="__nuovo__">＋ {t('np_option')}</option>
           </select>
           <input type="text" inputMode="decimal" placeholder={t('val_ph')} value={vp} onChange={e=>setVp(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addP()}
             className="w-20 border border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-red-400 text-center"/>
@@ -2375,11 +2407,12 @@ function AndamentoAnalisi({analisi}) {
   // Parametri presenti in almeno 2 analisi: solo per quelli ha senso un andamento
   const conteggi = {};
   analisi.forEach(a=>(a.params||[]).forEach(p=>{ conteggi[p.n]=(conteggi[p.n]||0)+1; }));
-  const disponibili = PARAMS.map(p=>p.n).filter(n=>conteggi[n]>=2);
+  const disponibili = Object.keys(conteggi).filter(n=>conteggi[n]>=2).sort();
   const [sel, setSel] = useState(disponibili[0]||'');
   if (disponibili.length===0) return null;
   const attivo = disponibili.includes(sel) ? sel : disponibili[0];
-  const def = PARAMS.find(p=>p.n===attivo);
+  // I riferimenti sono salvati dentro ogni valore, così valgono anche per i parametri personalizzati
+  const def = PARAMS.find(p=>p.n===attivo) || analisi.flatMap(a=>a.params||[]).find(p=>p.n===attivo) || {};
 
   const punti = analisi
     .map(a=>{ const p=(a.params||[]).find(x=>x.n===attivo); const d=p?.d||a.data; return p?{data:d,df:fmt(d),val:p.v,fuori:isAbn(p)}:null; })
@@ -2650,6 +2683,8 @@ export default function App() {
   const [allergie, setAllergie] = useState([]);
   const [cartella, setCartella] = useState(null);
   const [premium, setPremiumState] = useState(false);
+  const [parametri, setParametri] = useState([]);          // parametri creati dall'utente
+  const [dopoParam, setDopoParam] = useState(null);        // cosa fare dopo averne creato uno
   const [problemaAperto, setProblemaAperto] = useState(null);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
@@ -2667,6 +2702,7 @@ export default function App() {
       } catch(e){}
       try { const r=await window.storage.get('ht-promemoria'); if(r?.value==='1') setPromemoria(true); } catch(e){}
       try { const r=await window.storage.get('ht-cartella'); if(r?.value) setCartella(JSON.parse(r.value)); } catch(e){}
+      try { const r=await window.storage.get('ht-parametri'); if(r?.value) setParametri(JSON.parse(r.value)); } catch(e){}
       try {
         const { caricaStato, inizializza } = await import('./acquisti');
         setPremiumState(await caricaStato());
@@ -2843,7 +2879,14 @@ export default function App() {
 
       {modal==='visita'   && <VisitaModal  onSave={d=>add('ht-visite',setVisite,d)}  onClose={()=>setModal(null)}/>}
       {modal?.t==='editV' && <VisitaModal iniziale={modal.d} onSave={d=>edit('ht-visite',setVisite,d)} onClose={()=>setModal(null)}/>}
-      {modal==='analisi'  && <AnalisiModal onSave={d=>add('ht-analisi',setAnalisi,d)} onClose={()=>setModal(null)}/>}
+      {modal==='analisi'  && <AnalisiModal parametri={parametri} onNuovoParam={cb=>{setDopoParam(()=>cb); setModal({t:'nuovoParam', d:'analisi'});}}
+        onSave={d=>add('ht-analisi',setAnalisi,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='nuovoParam' && <NuovoParametroModal onClose={()=>setModal(modal.d==='analisi'?'analisi':{t:'editA',d:modal.d})}
+        onSave={p=>{
+          setParametri(prev=>{ const u=[...prev.filter(x=>x.n!==p.n), p]; sv('ht-parametri',u); return u; });
+          setModal(modal.d==='analisi'?'analisi':{t:'editA',d:modal.d});
+          setTimeout(()=>dopoParam?.(p.n), 50);
+        }}/>}
       {modal==='vitale'   && <VitaleModal  onSave={d=>add('ht-vitali',setVitali,d)}  onClose={()=>setModal(null)}/>}
       {modal==='allenamento' && <AllenamentoModal onSave={d=>add('ht-allenamenti',setAllenamenti,d)} onClose={()=>setModal(null)}/>}
       {modal==='ricetta'  && <RicettaModal onSave={d=>add('ht-ricette',setRicette,d)} onClose={()=>setModal(null)}/>}
@@ -2875,7 +2918,9 @@ export default function App() {
       {modal?.t==='viewN' && <ViewNotaModal n={modal.d} onEdit={n=>setModal({t:'editN',d:n})} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewV' && <ViewVisitaModal v={modal.d} onEdit={v=>setModal({t:'editV',d:v})} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewA' && <ViewAnalisiModal a={modal.d} onEdit={a=>setModal({t:'editA',d:a})} onClose={()=>setModal(null)}/>}
-      {modal?.t==='editA'   && <AnalisiModal iniziale={modal.d} onSave={d=>edit('ht-analisi',setAnalisi,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='editA'   && <AnalisiModal iniziale={modal.d} parametri={parametri}
+        onNuovoParam={cb=>{setDopoParam(()=>cb); setModal({t:'nuovoParam', d:modal.d});}}
+        onSave={d=>edit('ht-analisi',setAnalisi,d)} onClose={()=>setModal(null)}/>}
       {modal?.t==='editVit' && <VitaleModal iniziale={modal.d} onSave={d=>edit('ht-vitali',setVitali,d)} onClose={()=>setModal(null)}/>}
       {modal?.t==='editS'   && <AllenamentoModal iniziale={modal.d} onSave={d=>edit('ht-allenamenti',setAllenamenti,d)} onClose={()=>setModal(null)}/>}
       {modal?.t==='editR'   && <RicettaModal iniziale={modal.d} onSave={d=>edit('ht-ricette',setRicette,d)} onClose={()=>setModal(null)}/>}
