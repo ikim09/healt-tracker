@@ -962,6 +962,79 @@ function TerapiaCard({x, onEdit, onDel, conclusa}) {
 }
 
 // --- Cartella clinica: i dati da avere sempre sottomano ---
+const EMOJI_PROFILO = ['🙂','👦','👧','👨','👩','👴','👵','🐶','🐱','❤️'];
+
+function ProfiliModal({profili, attivo, onCambia, onSalva, onElimina, onPremium, onClose}) {
+  const [nuovo, setNuovo] = useState(null);        // {nome, emoji} in creazione o modifica
+  const [modificaId, setModificaId] = useState(null);
+  const bloccato = ACQUISTI_ATTIVI && !isPremium() && profili.length>=1;
+
+  const apriNuovo = () => {
+    if (bloccato) { onPremium(); return; }
+    setModificaId(null); setNuovo({nome:'', emoji:'👤'});
+  };
+  const apriModifica = p => { setModificaId(p.id); setNuovo({nome:p.nome||'', emoji:p.emoji||'🙂'}); };
+
+  const conferma = () => {
+    const nome = nuovo.nome.trim();
+    if (!nome) return;
+    if (modificaId!=null) {
+      onSalva(profili.map(p=>p.id===modificaId?{...p, nome, emoji:nuovo.emoji}:p), null);
+    } else {
+      const id = Math.max(0, ...profili.map(p=>p.id)) + 1;
+      onSalva([...profili, {id, nome, emoji:nuovo.emoji}], id);
+    }
+    setNuovo(null); setModificaId(null);
+  };
+
+  const elimina = p => {
+    if (profili.length<=1) return;
+    if (!confirm(t('prof_del_confirm', p.nome||t('prof_me')))) return;
+    onElimina(p);
+  };
+
+  if (nuovo) return (
+    <Modal title={modificaId!=null?t('prof_edit'):t('prof_new')} onClose={()=>setNuovo(null)}
+      onSave={nuovo.nome.trim()?conferma:null} saveLabel={t('save')} saveBg="linear-gradient(135deg,#1e3a8a,#2563eb)">
+      <Inp lbl={t('prof_name')} placeholder={t('prof_name_ph')} value={nuovo.nome} onChange={e=>setNuovo(n=>({...n,nome:e.target.value}))}/>
+      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('prof_icon')}</p>
+      <div className="flex flex-wrap gap-2">
+        {EMOJI_PROFILO.map(e=>(
+          <button key={e} onClick={()=>setNuovo(n=>({...n,emoji:e}))}
+            className="w-11 h-11 rounded-2xl text-xl flex items-center justify-center border-2 transition-all"
+            style={nuovo.emoji===e?{background:'#eff6ff',borderColor:'#1e40af'}:{background:'white',borderColor:'#e5e7eb'}}>{e}</button>
+        ))}
+      </div>
+    </Modal>
+  );
+
+  return (
+    <Modal title={t('prof_title')} onClose={onClose}>
+      <p className="text-sm text-gray-400 mb-4">{t('prof_desc')}</p>
+      <div className="space-y-2 mb-4">
+        {profili.map(p=>(
+          <div key={p.id} className="flex items-center gap-3 rounded-2xl px-3 py-3 border-2"
+            style={p.id===attivo?{background:'#eff6ff',borderColor:'#1e40af'}:{background:'#f9fafb',borderColor:'transparent'}}>
+            <button onClick={()=>{onCambia(p.id); onClose();}} className="flex items-center gap-3 flex-1 min-w-0 text-left">
+              <span className="text-2xl">{p.emoji||'🙂'}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-bold text-gray-800 truncate">{p.nome||t('prof_me')}</span>
+                {p.id===attivo&&<span className="block text-xs" style={{color:'#1e40af'}}>{t('prof_active')}</span>}
+              </span>
+            </button>
+            <BtnModifica onClick={()=>apriModifica(p)}/>
+            {profili.length>1&&<button onClick={()=>elimina(p)} className="text-gray-200 hover:text-red-400 text-xl">🗑</button>}
+          </div>
+        ))}
+      </div>
+      <button onClick={apriNuovo} className="w-full py-3 rounded-2xl font-bold text-sm text-white" style={{background:'linear-gradient(135deg,#1e3a8a,#2563eb)'}}>
+        {bloccato ? `✨ ${t('prof_unlock')}` : `+ ${t('prof_add')}`}
+      </button>
+      <p className="text-xs text-gray-300 text-center mt-3">{t('prof_note')}</p>
+    </Modal>
+  );
+}
+
 function CartellaModal({dati, allergie, ultimoPeso, onSave, onClose}) {
   const [f, sf] = useState({
     nome:'', nascita:'', gruppo:'', altezza:'', peso:'',
@@ -2947,6 +3020,11 @@ export default function App() {
   const [premium, setPremiumState] = useState(false);
   const [blocco, setBlocco] = useState(false);             // impostazione attiva
   const [bloccato, setBloccato] = useState(false);          // schermata di blocco visibile ora
+  // Profili: il primo usa le chiavi originali, gli altri hanno il proprio prefisso.
+  // Così i dati già esistenti restano dove sono, senza migrazioni.
+  const [profili, setProfili] = useState([{id:1, nome:'', emoji:'🙂'}]);
+  const [profilo, setProfilo] = useState(null);            // null finché non è caricato
+  const kp = base => (profilo==null || profilo===1) ? base : base.replace(/^ht-/, `ht-${profilo}-`);
   const [parametri, setParametri] = useState([]);          // parametri creati dall'utente
   const [dopoParam, setDopoParam] = useState(null);        // cosa fare dopo averne creato uno
   const [problemaAperto, setProblemaAperto] = useState(null);
@@ -2965,24 +3043,71 @@ export default function App() {
         setLang(scelta); setLangState(scelta);
       } catch(e){}
       try { const r=await window.storage.get('ht-promemoria'); if(r?.value==='1') setPromemoria(true); } catch(e){}
-      try { const r=await window.storage.get('ht-cartella'); if(r?.value) setCartella(JSON.parse(r.value)); } catch(e){}
-      try { const r=await window.storage.get('ht-parametri'); if(r?.value) setParametri(JSON.parse(r.value)); } catch(e){}
       try { const r=await window.storage.get('ht-blocco'); if(r?.value==='1'){ setBlocco(true); setBloccato(true); } } catch(e){}
       try {
         const { caricaStato, inizializza } = await import('./acquisti');
         setPremiumState(await caricaStato());
         inizializza(p=>setPremiumState(p));   // in sottofondo: allinea con l'App Store
       } catch(e){}
-      for (const [k,fn] of [['ht-visite',setVisite],['ht-analisi',setAnalisi],['ht-allenamenti',setAllenamenti],['ht-ricette',setRicette],['ht-note',setNote],['ht-terapie',setTerapie],['ht-problemi',setProblemi],['ht-allergie',setAllergie],['ht-esami',setEsami]]) {
+      // Profili: se non ce ne sono, si parte con quello predefinito
+      let elenco = [{id:1, nome:'', emoji:'🙂'}];
+      try { const r=await window.storage.get('ht-profili'); if(r?.value){ const p=JSON.parse(r.value); if(p?.length) elenco=p; } } catch(e){}
+      setProfili(elenco);
+      let attivo = elenco[0].id;
+      try { const r=await window.storage.get('ht-profilo'); const n=Number(r?.value); if(n && elenco.some(p=>p.id===n)) attivo=n; } catch(e){}
+      setProfilo(attivo);
+    })();
+  },[]);
+
+  // Carica i dati del profilo scelto: rigirato a ogni cambio profilo
+  useEffect(()=>{
+    if (profilo==null) return;
+    let vivo = true;
+    (async()=>{
+      setLoading(true);
+      const vuoti = [setVisite,setAnalisi,setVitali,setAllenamenti,setRicette,setNote,setTerapie,setProblemi,setAllergie,setEsami];
+      vuoti.forEach(fn=>fn([]));
+      setCartella(null); setParametri([]); setProblemaAperto(null);
+      try { const r=await window.storage.get(kp('ht-cartella')); if(r?.value) setCartella(JSON.parse(r.value)); } catch(e){}
+      try { const r=await window.storage.get(kp('ht-parametri')); if(r?.value) setParametri(JSON.parse(r.value)); } catch(e){}
+      for (const [k,fn] of [[kp('ht-visite'),setVisite],[kp('ht-analisi'),setAnalisi],[kp('ht-allenamenti'),setAllenamenti],[kp('ht-ricette'),setRicette],[kp('ht-note'),setNote],[kp('ht-terapie'),setTerapie],[kp('ht-problemi'),setProblemi],[kp('ht-allergie'),setAllergie],[kp('ht-esami'),setEsami]]) {
         try { const r=await window.storage.get(k); if(r) fn(JSON.parse(r.value)); } catch(e){}
       }
       try {
-        const r=await window.storage.get('ht-vitali');
-        if(r){ const m=migraPressione(JSON.parse(r.value)); setVitali(m.list); if(m.changed) await window.storage.set('ht-vitali',JSON.stringify(m.list)); }
+        const r=await window.storage.get(kp('ht-vitali'));
+        if(r){ const m=migraPressione(JSON.parse(r.value)); setVitali(m.list); if(m.changed) await window.storage.set(kp('ht-vitali'),JSON.stringify(m.list)); }
       } catch(e){}
-      setLoading(false);
+      if (vivo) setLoading(false);
     })();
-  },[]);
+    return ()=>{ vivo=false; };
+  },[profilo]);
+
+  // Eliminando una persona si rimuovono anche i suoi dati, allegati compresi
+  const eliminaProfilo = async p => {
+    const pref = p.id===1 ? 'ht-' : `ht-${p.id}-`;
+    const suffissi = ['visite','analisi','vitali','allenamenti','ricette','note','terapie','problemi','allergie','esami','cartella','parametri'];
+    for (const s of suffissi) {
+      const chiave = `${pref}${s}`;
+      try {
+        const r = await window.storage.get(chiave);
+        if (r?.value) {   // via anche gli allegati agganciati a quei record
+          try { (JSON.parse(r.value)||[]).forEach(x=>{ if(x?.id) window.storage.delete(`ht-att-${x.id}`).catch(()=>{}); }); } catch(e){}
+        }
+        await window.storage.delete(chiave);
+      } catch(e){}
+    }
+    const resto = profili.filter(x=>x.id!==p.id);
+    await salvaProfili(resto, p.id===profilo ? resto[0].id : null);
+  };
+
+  const salvaProfili = async (elenco, attivo) => {
+    setProfili(elenco);
+    try { await window.storage.set('ht-profili', JSON.stringify(elenco)); } catch(e){}
+    if (attivo!=null) {
+      setProfilo(attivo); setTab('home');
+      try { await window.storage.set('ht-profilo', String(attivo)); } catch(e){}
+    }
+  };
 
   const changeLang = async c => {
     setLang(c); setLangState(c);
@@ -3021,8 +3146,8 @@ export default function App() {
     setter(prev=>{ const u=prev.filter(x=>x.id!==id); sv(key,u); return u; });
   };
 
-  const toggleRicetta = id => setRicette(prev=>{ const u=prev.map(r=>r.id===id?{...r,usata:!r.usata}:r); sv('ht-ricette',u); return u; });
-  const toggleNota = id => setNote(prev=>{ const u=prev.map(n=>n.id===id?{...n,archiviata:!n.archiviata}:n); sv('ht-note',u); return u; });
+  const toggleRicetta = id => setRicette(prev=>{ const u=prev.map(r=>r.id===id?{...r,usata:!r.usata}:r); sv(kp('ht-ricette'),u); return u; });
+  const toggleNota = id => setNote(prev=>{ const u=prev.map(n=>n.id===id?{...n,archiviata:!n.archiviata}:n); sv(kp('ht-note'),u); return u; });
 
   // Riprogramma i promemoria quando cambiano visite, terapie o l'impostazione
   useEffect(()=>{
@@ -3082,11 +3207,13 @@ export default function App() {
   // Aggiorna un problema del diario (usato per stato, aggiornamenti e collegamenti)
   const patchProblema = (id, fn) => setProblemi(prev=>{
     const u = prev.map(p=>p.id===id?fn(p):p);
-    sv('ht-problemi',u);
+    sv(kp('ht-problemi'),u);
     const nuovo = u.find(p=>p.id===id);
     if (nuovo) setProblemaAperto(nuovo);
     return u;
   });
+
+  const profiloCorrente = profili.find(p=>p.id===profilo) || profili[0];
 
   const TABS = [{id:'home',i:'🏠'},{id:'visite',i:'👨‍⚕️'},{id:'analisi',i:'🩸'},{id:'vitali',i:'💓'},{id:'altro',i:'⋯'}];
   const SEZ_ALTRO = ['diario','esami','allergie','sport','ricette','note'];
@@ -3115,7 +3242,12 @@ export default function App() {
     <div className="flex flex-col min-h-screen" style={{background:'#f8faff',fontFamily:'-apple-system,BlinkMacSystemFont,sans-serif'}}>
       <div className="px-5 pb-4 flex items-center gap-3 flex-shrink-0" style={{background:'linear-gradient(135deg,#1e3a8a,#2563eb)',paddingTop:'calc(env(safe-area-inset-top) + 1rem)'}}>
         <button onClick={()=>setModal('settings')} title={t('settings')} className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl active:opacity-60 transition-opacity" style={{background:'rgba(255,255,255,0.2)'}}>🏥</button>
-        <div><h1 className="font-black text-white text-base leading-tight">HealthTracker</h1><p className="text-blue-200 text-xs">{t('tagline')}</p></div>
+        <button onClick={()=>setModal('profili')} className="text-left min-w-0">
+          <h1 className="font-black text-white text-base leading-tight truncate">HealthTracker</h1>
+          {profili.length>1
+            ? <p className="text-blue-200 text-xs truncate">{profiloCorrente.emoji} {profiloCorrente.nome||t('prof_me')} ▾</p>
+            : <p className="text-blue-200 text-xs">{t('tagline')}</p>}
+        </button>
         <div className="ml-auto flex items-center gap-2">
           <button onClick={()=>setModal('search')} title={t('search_title')}
             className="w-9 h-9 rounded-xl flex items-center justify-center text-lg hover:opacity-80 transition-opacity" style={{background:'rgba(255,255,255,0.15)'}}>🔍</button>
@@ -3138,14 +3270,14 @@ export default function App() {
               else if (tipo==='analisi') setModal({t:'viewA',d});
               else if (tipo==='percorso') { setProblemaAperto(d); setTab('diario'); }
             }}/>}
-          {tab==='visite'  && <Visite visite={visite} onAdd={()=>setModal('visita')} onDel={id=>del('ht-visite',setVisite,id)} onView={v=>setModal({t:'viewV',d:v})}/>}
-          {tab==='analisi' && <AnalisiView analisi={analisi} onAdd={()=>setModal('analisi')} onDel={id=>del('ht-analisi',setAnalisi,id)} onView={a=>setModal({t:'viewA',d:a})}/>}
-          {tab==='vitali'  && <VitaliView vitali={vitali} onAdd={()=>setModal('vitale')} onEdit={v=>setModal({t:'editVit',d:v})} onDel={id=>del('ht-vitali',setVitali,id)}/>}
-          {tab==='sport'   && <AllenamentiView allenamenti={allenamenti} onAdd={()=>setModal('allenamento')} onEdit={a=>setModal({t:'editS',d:a})} onDel={id=>del('ht-allenamenti',setAllenamenti,id)}/>}
-          {tab==='ricette' && <RicetteView ricette={ricette} onAdd={()=>setModal('ricetta')} onToggle={toggleRicetta} onEdit={r=>setModal({t:'editR',d:r})} onDel={id=>del('ht-ricette',setRicette,id)}/>}
-          {tab==='note'    && <NoteView note={note} onAdd={()=>setModal('nota')} onArch={toggleNota} onDel={id=>del('ht-note',setNote,id)} onView={n=>setModal({t:'viewN',d:n})}/>}
-          {tab==='esami'   && <EsamiView esami={esami} onAdd={()=>setModal('esame')} onEdit={e=>setModal({t:'editE',d:e})} onDel={id=>del('ht-esami',setEsami,id)} onView={e=>setModal({t:'viewE',d:e})}/>}
-          {tab==='allergie' && <AllergieView allergie={allergie} onAdd={()=>setModal('allergia')} onEdit={a=>setModal({t:'editAl',d:a})} onDel={id=>del('ht-allergie',setAllergie,id)} onView={a=>setModal({t:'viewAl',d:a})}/>}
+          {tab==='visite'  && <Visite visite={visite} onAdd={()=>setModal('visita')} onDel={id=>del(kp('ht-visite'),setVisite,id)} onView={v=>setModal({t:'viewV',d:v})}/>}
+          {tab==='analisi' && <AnalisiView analisi={analisi} onAdd={()=>setModal('analisi')} onDel={id=>del(kp('ht-analisi'),setAnalisi,id)} onView={a=>setModal({t:'viewA',d:a})}/>}
+          {tab==='vitali'  && <VitaliView vitali={vitali} onAdd={()=>setModal('vitale')} onEdit={v=>setModal({t:'editVit',d:v})} onDel={id=>del(kp('ht-vitali'),setVitali,id)}/>}
+          {tab==='sport'   && <AllenamentiView allenamenti={allenamenti} onAdd={()=>setModal('allenamento')} onEdit={a=>setModal({t:'editS',d:a})} onDel={id=>del(kp('ht-allenamenti'),setAllenamenti,id)}/>}
+          {tab==='ricette' && <RicetteView ricette={ricette} onAdd={()=>setModal('ricetta')} onToggle={toggleRicetta} onEdit={r=>setModal({t:'editR',d:r})} onDel={id=>del(kp('ht-ricette'),setRicette,id)}/>}
+          {tab==='note'    && <NoteView note={note} onAdd={()=>setModal('nota')} onArch={toggleNota} onDel={id=>del(kp('ht-note'),setNote,id)} onView={n=>setModal({t:'viewN',d:n})}/>}
+          {tab==='esami'   && <EsamiView esami={esami} onAdd={()=>setModal('esame')} onEdit={e=>setModal({t:'editE',d:e})} onDel={id=>del(kp('ht-esami'),setEsami,id)} onView={e=>setModal({t:'viewE',d:e})}/>}
+          {tab==='allergie' && <AllergieView allergie={allergie} onAdd={()=>setModal('allergia')} onEdit={a=>setModal({t:'editAl',d:a})} onDel={id=>del(kp('ht-allergie'),setAllergie,id)} onView={a=>setModal({t:'viewAl',d:a})}/>}
           {tab==='diario' && (problemaAperto
             ? <ProblemaDetail
                 p={problemaAperto} terapie={terapie} visite={visite} analisi={analisi} note={note} allenamenti={allenamenti}
@@ -3154,7 +3286,7 @@ export default function App() {
                 onStato={s=>patchProblema(problemaAperto.id,p=>({...p,stato:s}))}
                 onAddTer={()=>setModal({t:'newTer',d:problemaAperto.id})}
                 onEditTer={x=>setModal({t:'editT',d:x})}
-                onDelTer={id=>del('ht-terapie',setTerapie,id)}
+                onDelTer={id=>del(kp('ht-terapie'),setTerapie,id)}
                 onAddAgg={()=>setModal('aggiornamento')}
                 onEditAgg={a=>setModal({t:'editAgg',d:a})}
                 onDelAgg={idA=>{ window.storage.delete(`ht-att-${idA}`).catch(()=>{}); patchProblema(problemaAperto.id,p=>({...p,aggiornamenti:(p.aggiornamenti||[]).filter(a=>a.id!==idA)})); }}
@@ -3168,8 +3300,8 @@ export default function App() {
                 onEditS={s=>setModal({t:'editS',d:s})}
               />
             : <DiarioView problemi={problemi} terapie={terapie} onAdd={()=>setModal('problema')}
-                onOpen={p=>setProblemaAperto(p)} onDel={id=>del('ht-problemi',setProblemi,id)}
-                onEditTer={x=>setModal({t:'editT',d:x})} onDelTer={id=>del('ht-terapie',setTerapie,id)}/>)}
+                onOpen={p=>setProblemaAperto(p)} onDel={id=>del(kp('ht-problemi'),setProblemi,id)}
+                onEditTer={x=>setModal({t:'editT',d:x})} onDelTer={id=>del(kp('ht-terapie'),setTerapie,id)}/>)}
         </div>
       </div>
 
@@ -3186,29 +3318,29 @@ export default function App() {
         })}
       </div>
 
-      {modal==='visita'   && <VisitaModal  onSave={d=>add('ht-visite',setVisite,d)}  onClose={()=>setModal(null)}/>}
-      {modal?.t==='editV' && <VisitaModal iniziale={modal.d} onSave={d=>edit('ht-visite',setVisite,d)} onClose={()=>setModal(null)}/>}
+      {modal==='visita'   && <VisitaModal  onSave={d=>add(kp('ht-visite'),setVisite,d)}  onClose={()=>setModal(null)}/>}
+      {modal?.t==='editV' && <VisitaModal iniziale={modal.d} onSave={d=>edit(kp('ht-visite'),setVisite,d)} onClose={()=>setModal(null)}/>}
       {modal==='analisi'  && <AnalisiModal parametri={parametri} onNuovoParam={cb=>{setDopoParam(()=>cb); setModal({t:'nuovoParam', d:'analisi'});}}
-        onSave={d=>add('ht-analisi',setAnalisi,d)} onClose={()=>setModal(null)}/>}
+        onSave={d=>add(kp('ht-analisi'),setAnalisi,d)} onClose={()=>setModal(null)}/>}
       {modal?.t==='nuovoParam' && <NuovoParametroModal onClose={()=>setModal(modal.d==='analisi'?'analisi':{t:'editA',d:modal.d})}
         onSave={p=>{
-          setParametri(prev=>{ const u=[...prev.filter(x=>x.n!==p.n), p]; sv('ht-parametri',u); return u; });
+          setParametri(prev=>{ const u=[...prev.filter(x=>x.n!==p.n), p]; sv(kp('ht-parametri'),u); return u; });
           setModal(modal.d==='analisi'?'analisi':{t:'editA',d:modal.d});
           setTimeout(()=>dopoParam?.(p.n), 50);
         }}/>}
-      {modal==='vitale'   && <VitaleModal  onSave={d=>add('ht-vitali',setVitali,d)}  onClose={()=>setModal(null)}/>}
-      {modal==='allenamento' && <AllenamentoModal onSave={d=>add('ht-allenamenti',setAllenamenti,d)} onClose={()=>setModal(null)}/>}
-      {modal==='ricetta'  && <RicettaModal onSave={d=>add('ht-ricette',setRicette,d)} onClose={()=>setModal(null)}/>}
-      {modal==='nota'     && <NotaModal onSave={d=>add('ht-note',setNote,d)} onClose={()=>setModal(null)}/>}
-      {modal?.t==='newTer' && <TerapiaModal problemaId={modal.d} onPremium={()=>setModal('premium')} onSave={d=>add('ht-terapie',setTerapie,d)} onClose={()=>setModal(null)}/>}
-      {modal==='esame'    && <EsameModal onSave={d=>add('ht-esami',setEsami,d)} onClose={()=>setModal(null)}/>}
-      {modal?.t==='editE'  && <EsameModal iniziale={modal.d} onSave={d=>edit('ht-esami',setEsami,d)} onClose={()=>setModal(null)}/>}
+      {modal==='vitale'   && <VitaleModal  onSave={d=>add(kp('ht-vitali'),setVitali,d)}  onClose={()=>setModal(null)}/>}
+      {modal==='allenamento' && <AllenamentoModal onSave={d=>add(kp('ht-allenamenti'),setAllenamenti,d)} onClose={()=>setModal(null)}/>}
+      {modal==='ricetta'  && <RicettaModal onSave={d=>add(kp('ht-ricette'),setRicette,d)} onClose={()=>setModal(null)}/>}
+      {modal==='nota'     && <NotaModal onSave={d=>add(kp('ht-note'),setNote,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='newTer' && <TerapiaModal problemaId={modal.d} onPremium={()=>setModal('premium')} onSave={d=>add(kp('ht-terapie'),setTerapie,d)} onClose={()=>setModal(null)}/>}
+      {modal==='esame'    && <EsameModal onSave={d=>add(kp('ht-esami'),setEsami,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='editE'  && <EsameModal iniziale={modal.d} onSave={d=>edit(kp('ht-esami'),setEsami,d)} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewE'  && <ViewEsameModal e={modal.d} onEdit={e=>setModal({t:'editE',d:e})} onClose={()=>setModal(null)}/>}
-      {modal==='allergia' && <AllergiaModal onSave={d=>add('ht-allergie',setAllergie,d)} onClose={()=>setModal(null)}/>}
-      {modal?.t==='editAl' && <AllergiaModal iniziale={modal.d} onSave={d=>edit('ht-allergie',setAllergie,d)} onClose={()=>setModal(null)}/>}
+      {modal==='allergia' && <AllergiaModal onSave={d=>add(kp('ht-allergie'),setAllergie,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='editAl' && <AllergiaModal iniziale={modal.d} onSave={d=>edit(kp('ht-allergie'),setAllergie,d)} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewAl' && <ViewAllergiaModal a={modal.d} onEdit={a=>setModal({t:'editAl',d:a})} onClose={()=>setModal(null)}/>}
-      {modal==='problema' && <ProblemaModal onSave={d=>add('ht-problemi',setProblemi,d)} onClose={()=>setModal(null)}/>}
-      {modal?.t==='editP' && <ProblemaModal iniziale={modal.d} onSave={d=>{edit('ht-problemi',setProblemi,d); setProblemaAperto({...problemaAperto,...d});}} onClose={()=>setModal(null)}/>}
+      {modal==='problema' && <ProblemaModal onSave={d=>add(kp('ht-problemi'),setProblemi,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='editP' && <ProblemaModal iniziale={modal.d} onSave={d=>{edit(kp('ht-problemi'),setProblemi,d); setProblemaAperto({...problemaAperto,...d});}} onClose={()=>setModal(null)}/>}
       {modal==='aggiornamento' && <AggiornamentoModal onClose={()=>setModal(null)}
         onSave={async d=>{ const id=Date.now(); await salvaAllegatiAgg(id,d.allegati); patchProblema(problemaAperto.id,p=>({...p,aggiornamenti:[...(p.aggiornamenti||[]),{...d,id,allegati:metaAllegati(d.allegati)}]})); setModal(null); }}/>}
       {modal?.t==='editAgg' && <AggiornamentoModal iniziale={modal.d} onClose={()=>setModal(null)}
@@ -3232,12 +3364,12 @@ export default function App() {
       {modal?.t==='viewA' && <ViewAnalisiModal a={modal.d} onEdit={a=>setModal({t:'editA',d:a})} onClose={()=>setModal(null)}/>}
       {modal?.t==='editA'   && <AnalisiModal iniziale={modal.d} parametri={parametri}
         onNuovoParam={cb=>{setDopoParam(()=>cb); setModal({t:'nuovoParam', d:modal.d});}}
-        onSave={d=>edit('ht-analisi',setAnalisi,d)} onClose={()=>setModal(null)}/>}
-      {modal?.t==='editVit' && <VitaleModal iniziale={modal.d} onSave={d=>edit('ht-vitali',setVitali,d)} onClose={()=>setModal(null)}/>}
-      {modal?.t==='editS'   && <AllenamentoModal iniziale={modal.d} onSave={d=>edit('ht-allenamenti',setAllenamenti,d)} onClose={()=>setModal(null)}/>}
-      {modal?.t==='editR'   && <RicettaModal iniziale={modal.d} onSave={d=>edit('ht-ricette',setRicette,d)} onClose={()=>setModal(null)}/>}
-      {modal?.t==='editN'   && <NotaModal iniziale={modal.d} onSave={d=>edit('ht-note',setNote,d)} onClose={()=>setModal(null)}/>}
-      {modal?.t==='editT'   && <TerapiaModal iniziale={modal.d} problemi={problemi} onPremium={()=>setModal('premium')} onSave={d=>edit('ht-terapie',setTerapie,d)} onClose={()=>setModal(null)}/>}
+        onSave={d=>edit(kp('ht-analisi'),setAnalisi,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='editVit' && <VitaleModal iniziale={modal.d} onSave={d=>edit(kp('ht-vitali'),setVitali,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='editS'   && <AllenamentoModal iniziale={modal.d} onSave={d=>edit(kp('ht-allenamenti'),setAllenamenti,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='editR'   && <RicettaModal iniziale={modal.d} onSave={d=>edit(kp('ht-ricette'),setRicette,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='editN'   && <NotaModal iniziale={modal.d} onSave={d=>edit(kp('ht-note'),setNote,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='editT'   && <TerapiaModal iniziale={modal.d} problemi={problemi} onPremium={()=>setModal('premium')} onSave={d=>edit(kp('ht-terapie'),setTerapie,d)} onClose={()=>setModal(null)}/>}
       {modal==='export'   && <ExportModal visite={visite} analisi={analisi} vitali={vitali} onClose={()=>setModal(null)}/>}
       {modal==='settings' && <SettingsModal lang={lang} onLang={changeLang} promemoria={promemoria} onPromemoria={cambiaPromemoria}
         blocco={blocco} onBlocco={cambiaBlocco}
@@ -3250,9 +3382,13 @@ export default function App() {
       {modal==='backup' && <BackupModal onClose={()=>setModal(null)}/>}
       {modal==='statistiche' && <StatisticheModal dati={{analisi,vitali,allenamenti,visite,esami}}
         onPremium={()=>setModal('premium')} onClose={()=>setModal(null)}/>}
+      {modal==='profili' && <ProfiliModal profili={profili} attivo={profilo}
+        onCambia={id=>salvaProfili(profili, id)}
+        onSalva={(elenco,attivo)=>salvaProfili(elenco, attivo)} onElimina={eliminaProfilo}
+        onPremium={()=>setModal('premium')} onClose={()=>setModal(null)}/>}
       {modal==='cartella' && <CartellaModal dati={cartella} allergie={allergie}
         ultimoPeso={vitali.find(v=>v.tipo==='Peso')?.valore ?? null}
-        onSave={async d=>{ setCartella(d); try{ await window.storage.set('ht-cartella', JSON.stringify(d)); }catch(e){} setModal(null); }}
+        onSave={async d=>{ setCartella(d); try{ await window.storage.set(kp('ht-cartella'), JSON.stringify(d)); }catch(e){} setModal(null); }}
         onClose={()=>setModal(null)}/>}
     </div>
   );
