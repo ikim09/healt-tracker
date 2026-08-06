@@ -2195,7 +2195,7 @@ function ExportModal({visite,analisi,vitali,onClose}) {
 }
 
 // --- Views ---
-function Dashboard({visite, analisi, vitali, terapie, problemi, cartella, onGo, onNuovo, onApri}) {
+function Dashboard({visite, analisi, vitali, terapie, problemi, ricette, note, allergie, allenamenti, cartella, onGo, onNuovo, onApri}) {
   const oggiD = new Date();
   const oggi = oggiD.toISOString().slice(0,10);
   const giorni = d => Math.round((new Date(d) - new Date(oggi)) / 86400000);
@@ -2206,7 +2206,9 @@ function Dashboard({visite, analisi, vitali, terapie, problemi, cartella, onGo, 
   const lp=vitali.find(v=>v.tipo==='Peso'), lfc=vitali.find(v=>v.tipo==='Frequenza cardiaca');
   const prossime = visite.filter(v=>v.data>=oggi).sort((a,b)=>a.data.localeCompare(b.data)).slice(0,3);
   const percorsi = problemi.filter(p=>p.stato!=='risolto');
-  const vuoto = !visite.length && !analisi.length && !vitali.length && !terapie.length;
+  const daUsare = (ricette||[]).filter(r=>!r.usata);
+  const vuoto = ![visite, analisi, vitali, terapie, problemi, ricette, note, allergie, allenamenti]
+    .some(x => (x||[]).length > 0);
 
   // Farmaci di oggi, con quelli già passati marcati
   const dosiOggi = terapie
@@ -2280,6 +2282,18 @@ function Dashboard({visite, analisi, vitali, terapie, problemi, cartella, onGo, 
             </div>
           )}
 
+          {/* Ricette ancora da utilizzare */}
+          {daUsare.length>0&&(
+            <button onClick={()=>onGo('ricette')} className="w-full rounded-2xl p-4 mb-4 text-left flex items-center gap-3" style={{background:'#ecfeff'}}>
+              <span className="text-2xl">📋</span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-bold" style={{color:'#0e7490'}}>{t('home_rx',daUsare.length)}</span>
+                <span className="block text-xs text-gray-500 truncate">{daUsare.slice(0,2).map(r=>r.descrizione).join(' · ')}</span>
+              </span>
+              <span className="text-gray-300">›</span>
+            </button>
+          )}
+
           {/* Prossime visite */}
           {prossime.length>0&&(
             <div className="mb-4">
@@ -2316,7 +2330,7 @@ function Dashboard({visite, analisi, vitali, terapie, problemi, cartella, onGo, 
           {/* Percorsi aperti */}
           {percorsi.length>0&&(
             <div className="mb-5">
-              <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2">📔 {t('open_s',percorsi.length).replace('🔶 ','')}</p>
+              <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2">📔 {t('home_journeys',percorsi.length)}</p>
               <div className="flex gap-2 overflow-x-auto pb-1" style={{scrollbarWidth:'none'}}>
                 {percorsi.map(p=>(
                   <button key={p.id} onClick={()=>onApri('percorso',p)}
@@ -2854,7 +2868,8 @@ export default function App() {
 
       <div className="flex-1 overflow-y-auto" style={{paddingBottom:'calc(80px + env(safe-area-inset-bottom))'}}>
         <div className="px-4 py-5 max-w-lg mx-auto">
-          {tab==='home'    && <Dashboard visite={visite} analisi={analisi} vitali={vitali} terapie={terapie} problemi={problemi} cartella={cartella}
+          {tab==='home'    && <Dashboard visite={visite} analisi={analisi} vitali={vitali} terapie={terapie} problemi={problemi}
+            ricette={ricette} note={note} allergie={allergie} allenamenti={allenamenti} cartella={cartella}
             onGo={id=>{setProblemaAperto(null); setTab(id);}}
             onNuovo={id=>setModal(id)}
             onApri={(tipo,d)=>{
