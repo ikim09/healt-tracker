@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea,
+         PieChart, Pie, Cell, BarChart, Bar } from "recharts";
 import { t, tv, tTab, setLang, LANGS, locale } from "./i18n";
 import { PARAMS } from "./params";
 import { ACQUISTI_ATTIVI, isPremium, maxAllegati, MAX_GRATIS, MAX_PREMIUM, acquistiDisponibili, prezzo, acquista, ripristina } from "./acquisti";
@@ -1872,8 +1873,47 @@ function BackupModal({onClose}) {
   );
 }
 
+// Tavolozza per i grafici a torta
+const TORTA = ['#3b82f6','#ef4444','#22c55e','#f59e0b','#a855f7','#06b6d4','#ec4899','#84cc16','#94a3b8'];
+
+// Un grafico a torta con legenda e valori, riutilizzabile
+function Torta({titolo, voci, unita, vuoto}) {
+  const tot = voci.reduce((s,v)=>s+v.value,0);
+  if (!voci.length || tot===0) return (
+    <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50 mb-3">
+      <p className="text-xs font-black text-gray-400 uppercase tracking-wider mb-2">{titolo}</p>
+      <p className="text-xs text-gray-300 py-6 text-center">{vuoto}</p>
+    </div>
+  );
+  return (
+    <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50 mb-3">
+      <p className="text-xs font-black text-gray-400 uppercase tracking-wider mb-1">{titolo}</p>
+      <ResponsiveContainer width="100%" height={170}>
+        <PieChart>
+          <Pie data={voci} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={38} outerRadius={70} paddingAngle={2}>
+            {voci.map((v,i)=><Cell key={i} fill={v.colore || TORTA[i%TORTA.length]}/>)}
+          </Pie>
+          <Tooltip formatter={(v,n)=>[`${v}${unita?' '+unita:''}`, n]}
+            contentStyle={{fontSize:11,borderRadius:16,border:'none',boxShadow:'0 8px 24px rgba(0,0,0,0.12)'}}/>
+        </PieChart>
+      </ResponsiveContainer>
+      <div className="space-y-1 mt-1">
+        {voci.map((v,i)=>(
+          <div key={i} className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{background:v.colore || TORTA[i%TORTA.length]}}/>
+            <span className="text-xs text-gray-600 flex-1 truncate">{v.name}</span>
+            <span className="text-xs font-bold text-gray-700">{v.value}{unita?` ${unita}`:''}</span>
+            <span className="text-xs text-gray-300 w-10 text-right">{Math.round(v.value/tot*100)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function StatisticheModal({dati, onPremium, onClose}) {
   const bloccato = ACQUISTI_ATTIVI && !isPremium();
+  const [vista, setVista] = useState('andamenti');
   const [mesi, setMesi] = useState(12);
   const [sel, setSel] = useState([]);          // parametri da confrontare (max 3)
   const COLORI = ['#be123c','#1e40af','#15803d'];
@@ -1920,6 +1960,39 @@ function StatisticheModal({dati, onPremium, onClose}) {
   const pesi = dati.vitali.filter(v=>v.tipo==='Peso'&&dentro(v.data)).sort((a,b)=>String(a.data).localeCompare(String(b.data)));
   const dPeso = pesi.length>1 ? pesi[pesi.length-1].valore - pesi[0].valore : null;
 
+  // --- Dati per i riepiloghi a torta e a barre ---
+  const raggruppa = (elenco, chiave, valore) => {
+    const m = {};
+    elenco.forEach(x=>{ const k=chiave(x); if(!k) return; m[k]=(m[k]||0)+valore(x); });
+    return Object.entries(m).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
+  };
+  const conAltri = (coppie, max=6) => {
+    const testa = coppie.slice(0,max).map(([name,value])=>({name, value:Math.round(value*10)/10}));
+    const resto = coppie.slice(max).reduce((s,[,v])=>s+v,0);
+    if (resto>0) testa.push({name:t('st_others'), value:Math.round(resto*10)/10, colore:'#cbd5e1'});
+    return testa;
+  };
+
+  const sportTorta = conAltri(raggruppa(allen, a=>tv(a.tipo), a=>a.durata||0));
+
+  const valoriPeriodo = dati.analisi.flatMap(a=>(a.params||[]).map(p=>({p, data:p.d||a.data}))).filter(x=>dentro(x.data));
+  const fuoriN = valoriPeriodo.filter(x=>isAbn(x.p)).length;
+  const normaTorta = valoriPeriodo.length ? [
+    {name:t('st_in_range'), value:valoriPeriodo.length-fuoriN, colore:'#22c55e'},
+    {name:t('st_out_range'), value:fuoriN, colore:'#ef4444'},
+  ].filter(v=>v.value>0) : [];
+
+  const visiteTorta = conAltri(raggruppa((dati.visite||[]).filter(v=>dentro(v.data)), v=>tv(v.spec), ()=>1));
+
+  // Spese mediche per mese: visite + esami
+  const spese = [...(dati.visite||[]), ...(dati.esami||[])]
+    .filter(x=>dentro(x.data) && Number(x.costo)>0);
+  const perMese = {};
+  spese.forEach(x=>{ const m=String(x.data).slice(0,7); perMese[m]=(perMese[m]||0)+Number(x.costo); });
+  const barreSpese = Object.entries(perMese).sort((a,b)=>a[0].localeCompare(b[0]))
+    .map(([m,v])=>({ mese: m.slice(5)+'/'+m.slice(2,4), value: Math.round(v*100)/100 }));
+  const totSpeso = spese.reduce((s,x)=>s+Number(x.costo),0);
+
   if (bloccato) return (
     <Modal title={t('stats_title')} onClose={onClose} onSave={onPremium} saveLabel={`✨ ${t('stats_unlock')}`} saveBg="linear-gradient(135deg,#b45309,#f59e0b)">
       <div className="text-center py-6">
@@ -1952,7 +2025,38 @@ function StatisticheModal({dati, onPremium, onClose}) {
         </div>
       </div>
 
-      {disponibili.length===0 ? (
+      <div className="flex gap-1 p-1 rounded-2xl bg-gray-100 mb-4">
+        {[['andamenti','st_trends'],['riepiloghi','st_summary']].map(([id,l])=>(
+          <button key={id} onClick={()=>setVista(id)} className="flex-1 py-2 rounded-xl text-xs font-bold transition-all"
+            style={vista===id?{background:'#1e40af',color:'white'}:{background:'transparent',color:'#9ca3af'}}>{t(l)}</button>
+        ))}
+      </div>
+
+      {vista==='riepiloghi' ? (
+        <>
+          <Torta titolo={`💪 ${t('st_by_activity')}`} voci={sportTorta} unita="min" vuoto={t('st_no_data')}/>
+          <Torta titolo={`🩸 ${t('st_values_state')}`} voci={normaTorta} vuoto={t('st_no_data')}/>
+          <Torta titolo={`👨‍⚕️ ${t('st_by_spec')}`} voci={visiteTorta} vuoto={t('st_no_data')}/>
+
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50 mb-3">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs font-black text-gray-400 uppercase tracking-wider">💶 {t('st_spending')}</p>
+              {totSpeso>0&&<span className="text-xs font-bold" style={{color:'#166534'}}>{eur(totSpeso)}</span>}
+            </div>
+            {barreSpese.length===0
+              ? <p className="text-xs text-gray-300 py-6 text-center">{t('st_no_spending')}</p>
+              : <ResponsiveContainer width="100%" height={170}>
+                  <BarChart data={barreSpese} margin={{top:8,right:8,left:-22,bottom:0}}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f5"/>
+                    <XAxis dataKey="mese" tick={{fontSize:9,fill:'#9ca3af'}}/>
+                    <YAxis tick={{fontSize:10,fill:'#9ca3af'}} width={42}/>
+                    <Tooltip formatter={v=>[eur(v), t('cost_v')]} contentStyle={{fontSize:11,borderRadius:16,border:'none',boxShadow:'0 8px 24px rgba(0,0,0,0.12)'}}/>
+                    <Bar dataKey="value" fill="#22c55e" radius={[6,6,0,0]}/>
+                  </BarChart>
+                </ResponsiveContainer>}
+          </div>
+        </>
+      ) : disponibili.length===0 ? (
         <div className="text-center py-10"><p className="text-4xl mb-2">📊</p><p className="text-sm text-gray-400 px-6">{t('stats_empty')}</p></div>
       ) : (
         <>
@@ -3144,7 +3248,7 @@ export default function App() {
       {modal==='referto' && <RefertoModal dati={{cartella,allergie,terapie,analisi,visite,vitali,problemi}}
         onPremium={()=>setModal('premium')} onClose={()=>setModal(null)}/>}
       {modal==='backup' && <BackupModal onClose={()=>setModal(null)}/>}
-      {modal==='statistiche' && <StatisticheModal dati={{analisi,vitali,allenamenti}}
+      {modal==='statistiche' && <StatisticheModal dati={{analisi,vitali,allenamenti,visite,esami}}
         onPremium={()=>setModal('premium')} onClose={()=>setModal(null)}/>}
       {modal==='cartella' && <CartellaModal dati={cartella} allergie={allergie}
         ultimoPeso={vitali.find(v=>v.tipo==='Peso')?.valore ?? null}
