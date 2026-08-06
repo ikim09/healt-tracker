@@ -36,6 +36,8 @@ const SPORT = [
 ];
 const sportIcon = t => SPORT.find(s=>s.n===t)?.i || "💪";
 const FREQ = ["1 volta al giorno","2 volte al giorno","3 volte al giorno","Ogni 8 ore","Ogni 12 ore","A giorni alterni","1 volta a settimana","Al bisogno"];
+const TIPI_ESAME = ["Radiografia","Ecografia","TAC","Risonanza magnetica","Elettrocardiogramma","Esame urine","Tampone","Visita specialistica strumentale","Mammografia","Densitometria","Endoscopia","Altro"];
+const esameIcon = t => ({Radiografia:'🩻',Ecografia:'🔊',TAC:'🌀',"Risonanza magnetica":'🧲',Elettrocardiogramma:'💓',"Esame urine":'🧪',Tampone:'🦠',Mammografia:'🎗️',Densitometria:'🦴',Endoscopia:'🔬'}[t] || '📑');
 const GRUPPI = ["0-","0+","A-","A+","B-","B+","AB-","AB+"];
 const TIPI_ALLERGIA = ["Farmaco","Alimento","Polline","Acaro","Pelo di animale","Puntura di insetto","Lattice","Metallo","Altro"];
 const GRAVITA = ["Lieve","Moderata","Grave"];
@@ -1023,6 +1025,98 @@ function CartellaModal({dati, allergie, ultimoPeso, onSave, onClose}) {
   );
 }
 
+// --- Esami e referti (radiografie, ecografie, urine...) ---
+function EsameModal({iniziale, onSave, onClose}) {
+  const [f, sf] = useState(iniziale
+    ? {...iniziale, struttura:iniziale.struttura||'', esito:iniziale.esito||'', note:iniziale.note||'', costo:iniziale.costo??'', allegati:[]}
+    : {data:'',tipo:TIPI_ESAME[0],struttura:'',esito:'',costo:'',note:'',allegati:[]});
+  const caricando = useAllegatiCompleti(iniziale, sf);
+  const s = (k,v) => sf(p=>({...p,[k]:v}));
+  const ok = f.data && String(f.tipo).trim();
+  const salva = () => {
+    const c = parseFloat(String(f.costo).replace(',','.'));
+    onSave({...f, costo:(f.costo!=='' && !isNaN(c)) ? c : null});
+  };
+  return (
+    <Modal title={iniziale?t('edit_exam'):t('new_exam')} onClose={onClose} onSave={ok?salva:null}
+      saveLabel={ok?(iniziale?t('save_changes'):t('save_exam')):t('need_exam')} saveBg="linear-gradient(135deg,#4338ca,#6366f1)">
+      <Inp lbl={t('date_l')} type="date" value={f.data} onChange={e=>s('data',e.target.value)}/>
+      <SelAltro lbl={t('exam_type_l')} opts={TIPI_ESAME} value={f.tipo} onChange={v=>s('tipo',v)} placeholder={t('exam_altro_ph')}/>
+      <Inp lbl={t('exam_where_l')} placeholder={t('exam_where_ph')} value={f.struttura} onChange={e=>s('struttura',e.target.value)}/>
+      <Txt lbl={t('exam_result_l')} placeholder={t('exam_result_ph')} rows={4} value={f.esito} onChange={e=>s('esito',e.target.value)}/>
+      <Inp lbl={t('cost_l')} type="text" inputMode="decimal" placeholder={t('cost_ph')} value={f.costo} onChange={e=>s('costo',e.target.value)}/>
+      <Txt lbl={t('notes_l')} placeholder={t('exam_notes_ph')} rows={2} value={f.note} onChange={e=>s('note',e.target.value)}/>
+      {caricando
+        ? <p className="text-xs text-gray-300 py-2">⏳ {t('loading')}</p>
+        : <AttachmentPicker files={f.allegati} onChange={v=>s('allegati',v)}/>}
+    </Modal>
+  );
+}
+
+function ViewEsameModal({e, onEdit, onClose}) {
+  return (
+    <Modal title={`${esameIcon(e.tipo)} ${tv(e.tipo)}`} onClose={onClose}
+      onSave={onEdit?()=>onEdit(e):null} saveLabel={`✏️ ${t('edit')}`} saveBg="linear-gradient(135deg,#4338ca,#6366f1)">
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="rounded-2xl p-3" style={{background:'#eef2ff'}}>
+          <p className="text-xs font-bold uppercase tracking-wide" style={{color:'#4338ca'}}>{t('h_date')}</p>
+          <p className="font-bold text-sm mt-1" style={{color:'#4338ca'}}>{fmt(e.data)}</p>
+        </div>
+        {e.costo!=null&&e.costo!==''&&(
+          <div className="rounded-2xl p-3" style={{background:'#f0fdf4'}}>
+            <p className="text-xs font-bold uppercase tracking-wide" style={{color:'#166534'}}>{t('cost_v')}</p>
+            <p className="font-bold text-sm mt-1" style={{color:'#166534'}}>{eur(e.costo)}</p>
+          </div>
+        )}
+      </div>
+      {e.struttura&&<div className="bg-gray-50 rounded-2xl p-3 mb-3"><p className="text-xs text-gray-400 font-bold uppercase tracking-wide mb-1">{t('exam_where_l')}</p><p className="text-sm text-gray-700">{e.struttura}</p></div>}
+      {e.esito&&<div className="bg-gray-50 rounded-2xl p-3 mb-3"><p className="text-xs text-gray-400 font-bold uppercase tracking-wide mb-1">{t('exam_result_l')}</p><p className="text-sm text-gray-700 whitespace-pre-wrap">{e.esito}</p></div>}
+      {e.note&&<div className="bg-gray-50 rounded-2xl p-3"><p className="text-xs text-gray-400 font-bold uppercase tracking-wide mb-1">{t('notes_l')}</p><p className="text-sm text-gray-600 italic">{e.note}</p></div>}
+      <InlineAttachments allegati={e.allegati} recordId={e.id}/>
+    </Modal>
+  );
+}
+
+function EsamiView({esami, onAdd, onEdit, onDel, onView}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <div><h2 className="text-lg font-black text-gray-800">{t('exams_title')}</h2><p className="text-xs text-gray-400">{t('exams_count',esami.length)}</p></div>
+        <button onClick={onAdd} className="text-white text-sm font-bold px-4 py-2.5 rounded-2xl shadow-md hover:opacity-90" style={{background:'linear-gradient(135deg,#4338ca,#6366f1)'}}>{t('new_m')}</button>
+      </div>
+      {esami.length===0?(
+        <div className="text-center py-16"><p className="text-5xl mb-3">🩻</p><p className="text-gray-400 px-8">{t('no_exams')}</p></div>
+      ):(
+        <div className="space-y-3">
+          {esami.map(e=>(
+            <div key={e.id} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-50 cursor-pointer hover:shadow-md transition-all"
+              style={{borderLeft:'3px solid #6366f1'}} onClick={()=>onView(e)}>
+              <div className="flex items-start gap-3">
+                <span className="text-2xl">{esameIcon(e.tipo)}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-bold text-gray-800">{tv(e.tipo)}</p>
+                    <span className="text-xs text-gray-400">{fmt(e.data)}</span>
+                    {e.costo!=null&&e.costo!==''&&<span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{background:'#f0fdf4',color:'#166534'}}>{eur(e.costo)}</span>}
+                    {e.allegati?.length>0&&<span className="text-xs text-blue-400">📎 {e.allegati.length}</span>}
+                  </div>
+                  {e.struttura&&<p className="text-xs text-gray-400 mt-0.5">{e.struttura}</p>}
+                  {e.esito&&<p className="text-sm text-gray-500 mt-1 truncate">{e.esito}</p>}
+                  <p className="text-xs text-gray-300 mt-1">{t('tap_details')}</p>
+                </div>
+                <div className="flex flex-col items-center gap-2 flex-shrink-0">
+                  <BtnModifica onClick={()=>onEdit(e)}/>
+                  <button onClick={ev=>{ev.stopPropagation();onDel(e.id)}} className="text-gray-200 hover:text-red-400 text-xl">🗑</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- Allergie ---
 function AllergiaModal({iniziale, onSave, onClose}) {
   const oggi = new Date().toISOString().slice(0,10);
@@ -1604,6 +1698,8 @@ function SearchModal({dati, onGo, onClose}) {
       .map(x=>({id:'t'+x.id,tab:'diario',i:'💊',tit:x.farmaco,sub:x.dose,data:x.inizio})),
     ...dati.problemi.filter(p=>has(p.titolo,p.descrizione,...(p.aggiornamenti||[]).map(a=>a.testo)))
       .map(p=>({id:'p'+p.id,tab:'diario',i:'📔',tit:p.titolo,sub:p.descrizione,data:p.data})),
+    ...dati.esami.filter(e=>has(e.tipo,tv(e.tipo),e.struttura,e.esito,e.note))
+      .map(e=>({id:'e'+e.id,tab:'esami',i:esameIcon(e.tipo),tit:tv(e.tipo),sub:e.struttura||e.esito,data:e.data})),
     ...dati.allergie.filter(a=>has(a.sostanza,a.tipo,tv(a.tipo),a.sintomi,a.note))
       .map(a=>({id:'al'+a.id,tab:'allergie',i:allergiaIcon(a.tipo),tit:a.sostanza,sub:`${tv(a.tipo)} · ${tv(a.gravita)}`,data:a.data})),
     ...dati.allenamenti.filter(a=>has(a.tipo,tv(a.tipo),a.note))
@@ -1643,6 +1739,7 @@ function SearchModal({dati, onGo, onClose}) {
 function AltroModal({onGo, onClose}) {
   const voci = [
     {id:'diario',i:'📔',c:'#fff7ed'},
+    {id:'esami',i:'🩻',c:'#eef2ff'},
     {id:'allergie',i:'⚠️',c:'#fff1f2'},
     {id:'sport',i:'💪',c:'#f0fdf4'},
     {id:'ricette',i:'📋',c:'#ecfeff'},
@@ -2741,6 +2838,7 @@ export default function App() {
   const [terapie, setTerapie] = useState([]);
   const [problemi, setProblemi] = useState([]);
   const [allergie, setAllergie] = useState([]);
+  const [esami, setEsami] = useState([]);
   const [cartella, setCartella] = useState(null);
   const [premium, setPremiumState] = useState(false);
   const [blocco, setBlocco] = useState(false);             // impostazione attiva
@@ -2771,7 +2869,7 @@ export default function App() {
         setPremiumState(await caricaStato());
         inizializza(p=>setPremiumState(p));   // in sottofondo: allinea con l'App Store
       } catch(e){}
-      for (const [k,fn] of [['ht-visite',setVisite],['ht-analisi',setAnalisi],['ht-allenamenti',setAllenamenti],['ht-ricette',setRicette],['ht-note',setNote],['ht-terapie',setTerapie],['ht-problemi',setProblemi],['ht-allergie',setAllergie]]) {
+      for (const [k,fn] of [['ht-visite',setVisite],['ht-analisi',setAnalisi],['ht-allenamenti',setAllenamenti],['ht-ricette',setRicette],['ht-note',setNote],['ht-terapie',setTerapie],['ht-problemi',setProblemi],['ht-allergie',setAllergie],['ht-esami',setEsami]]) {
         try { const r=await window.storage.get(k); if(r) fn(JSON.parse(r.value)); } catch(e){}
       }
       try {
@@ -2887,7 +2985,7 @@ export default function App() {
   });
 
   const TABS = [{id:'home',i:'🏠'},{id:'visite',i:'👨‍⚕️'},{id:'analisi',i:'🩸'},{id:'vitali',i:'💓'},{id:'altro',i:'⋯'}];
-  const SEZ_ALTRO = ['diario','allergie','sport','ricette','note'];
+  const SEZ_ALTRO = ['diario','esami','allergie','sport','ricette','note'];
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-screen" style={{background:'#f8faff'}}>
@@ -2942,6 +3040,7 @@ export default function App() {
           {tab==='sport'   && <AllenamentiView allenamenti={allenamenti} onAdd={()=>setModal('allenamento')} onEdit={a=>setModal({t:'editS',d:a})} onDel={id=>del('ht-allenamenti',setAllenamenti,id)}/>}
           {tab==='ricette' && <RicetteView ricette={ricette} onAdd={()=>setModal('ricetta')} onToggle={toggleRicetta} onEdit={r=>setModal({t:'editR',d:r})} onDel={id=>del('ht-ricette',setRicette,id)}/>}
           {tab==='note'    && <NoteView note={note} onAdd={()=>setModal('nota')} onArch={toggleNota} onDel={id=>del('ht-note',setNote,id)} onView={n=>setModal({t:'viewN',d:n})}/>}
+          {tab==='esami'   && <EsamiView esami={esami} onAdd={()=>setModal('esame')} onEdit={e=>setModal({t:'editE',d:e})} onDel={id=>del('ht-esami',setEsami,id)} onView={e=>setModal({t:'viewE',d:e})}/>}
           {tab==='allergie' && <AllergieView allergie={allergie} onAdd={()=>setModal('allergia')} onEdit={a=>setModal({t:'editAl',d:a})} onDel={id=>del('ht-allergie',setAllergie,id)} onView={a=>setModal({t:'viewAl',d:a})}/>}
           {tab==='diario' && (problemaAperto
             ? <ProblemaDetail
@@ -2998,6 +3097,9 @@ export default function App() {
       {modal==='ricetta'  && <RicettaModal onSave={d=>add('ht-ricette',setRicette,d)} onClose={()=>setModal(null)}/>}
       {modal==='nota'     && <NotaModal onSave={d=>add('ht-note',setNote,d)} onClose={()=>setModal(null)}/>}
       {modal?.t==='newTer' && <TerapiaModal problemaId={modal.d} onPremium={()=>setModal('premium')} onSave={d=>add('ht-terapie',setTerapie,d)} onClose={()=>setModal(null)}/>}
+      {modal==='esame'    && <EsameModal onSave={d=>add('ht-esami',setEsami,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='editE'  && <EsameModal iniziale={modal.d} onSave={d=>edit('ht-esami',setEsami,d)} onClose={()=>setModal(null)}/>}
+      {modal?.t==='viewE'  && <ViewEsameModal e={modal.d} onEdit={e=>setModal({t:'editE',d:e})} onClose={()=>setModal(null)}/>}
       {modal==='allergia' && <AllergiaModal onSave={d=>add('ht-allergie',setAllergie,d)} onClose={()=>setModal(null)}/>}
       {modal?.t==='editAl' && <AllergiaModal iniziale={modal.d} onSave={d=>edit('ht-allergie',setAllergie,d)} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewAl' && <ViewAllergiaModal a={modal.d} onEdit={a=>setModal({t:'editAl',d:a})} onClose={()=>setModal(null)}/>}
@@ -3020,7 +3122,7 @@ export default function App() {
         elementi={allenamenti.map(s=>({id:s.id,tit:tv(s.tipo),sub:`${s.durata} min`,data:s.data}))}
         onSave={ids=>{ patchProblema(problemaAperto.id,p=>({...p,allenamenti:ids})); setModal(null); }} onClose={()=>setModal(null)}/>}
       {modal==='altro'    && <AltroModal onGo={id=>{setTab(id);setModal(null);}} onClose={()=>setModal(null)}/>}
-      {modal==='search'   && <SearchModal dati={{visite,analisi,note,ricette,terapie,allenamenti,vitali,problemi,allergie}} onGo={id=>{setTab(id);setProblemaAperto(null);setModal(null);}} onClose={()=>setModal(null)}/>}
+      {modal==='search'   && <SearchModal dati={{visite,analisi,note,ricette,terapie,allenamenti,vitali,problemi,allergie,esami}} onGo={id=>{setTab(id);setProblemaAperto(null);setModal(null);}} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewN' && <ViewNotaModal n={modal.d} onEdit={n=>setModal({t:'editN',d:n})} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewV' && <ViewVisitaModal v={modal.d} onEdit={v=>setModal({t:'editV',d:v})} onClose={()=>setModal(null)}/>}
       {modal?.t==='viewA' && <ViewAnalisiModal a={modal.d} onEdit={a=>setModal({t:'editA',d:a})} onClose={()=>setModal(null)}/>}
