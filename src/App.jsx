@@ -2057,10 +2057,11 @@ function PremiumModal({onSbloccato, onClose}) {
   );
 }
 
-function SettingsModal({lang, onLang, promemoria, onPromemoria, onExport, onReferto, onStat, onBackup, onCartella, cartella, premium, onPremium, onClose}) {
+function SettingsModal({lang, onLang, promemoria, onPromemoria, blocco, onBlocco, onExport, onReferto, onStat, onBackup, onCartella, cartella, premium, onPremium, onClose}) {
   const [info, setInfo] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
   const [msg, setMsg] = useState(null);
+  const [msgB, setMsgB] = useState(null);
   const curLang = LANGS.find(l=>l.code===lang) || LANGS[0];
   const Row = ({icon,label,desc,onClick,open}) => (
     <button onClick={onClick} className="w-full flex items-center gap-3 bg-gray-50 rounded-2xl p-4 mb-2 text-left active:bg-gray-100 hover:bg-gray-100 transition-colors">
@@ -2079,6 +2080,19 @@ function SettingsModal({lang, onLang, promemoria, onPromemoria, onExport, onRefe
           ? [cartella.gruppo, cartella.altezza&&`${cartella.altezza} cm`, cartella.peso&&`${cartella.peso} kg`].filter(Boolean).join(' · ')
           : t('record_empty')}
         onClick={onCartella}/>
+      <div className="w-full flex items-center gap-3 bg-gray-50 rounded-2xl p-4 mb-2">
+        <span className="text-2xl">🔒</span>
+        <span className="flex-1 min-w-0">
+          <span className="block font-bold text-gray-800 text-sm">{t('lock_title')}</span>
+          <span className="block text-xs text-gray-400">{t('lock_desc')}</span>
+        </span>
+        <button onClick={async()=>{ const r=await onBlocco(!blocco); setMsgB(r); }}
+          className="w-12 h-7 rounded-full flex-shrink-0 transition-colors relative"
+          style={{background:blocco?'#1e40af':'#d1d5db'}}>
+          <span className="absolute top-1 w-5 h-5 bg-white rounded-full shadow transition-all" style={{left:blocco?'26px':'4px'}}/>
+        </button>
+      </div>
+      {msgB&&<p className="text-xs text-gray-400 px-2 -mt-1 mb-2">{msgB}</p>}
       <div className="w-full flex items-center gap-3 bg-gray-50 rounded-2xl p-4 mb-2">
         <span className="text-2xl">🔔</span>
         <span className="flex-1 min-w-0">
@@ -2729,6 +2743,8 @@ export default function App() {
   const [allergie, setAllergie] = useState([]);
   const [cartella, setCartella] = useState(null);
   const [premium, setPremiumState] = useState(false);
+  const [blocco, setBlocco] = useState(false);             // impostazione attiva
+  const [bloccato, setBloccato] = useState(false);          // schermata di blocco visibile ora
   const [parametri, setParametri] = useState([]);          // parametri creati dall'utente
   const [dopoParam, setDopoParam] = useState(null);        // cosa fare dopo averne creato uno
   const [problemaAperto, setProblemaAperto] = useState(null);
@@ -2749,6 +2765,7 @@ export default function App() {
       try { const r=await window.storage.get('ht-promemoria'); if(r?.value==='1') setPromemoria(true); } catch(e){}
       try { const r=await window.storage.get('ht-cartella'); if(r?.value) setCartella(JSON.parse(r.value)); } catch(e){}
       try { const r=await window.storage.get('ht-parametri'); if(r?.value) setParametri(JSON.parse(r.value)); } catch(e){}
+      try { const r=await window.storage.get('ht-blocco'); if(r?.value==='1'){ setBlocco(true); setBloccato(true); } } catch(e){}
       try {
         const { caricaStato, inizializza } = await import('./acquisti');
         setPremiumState(await caricaStato());
@@ -2816,6 +2833,34 @@ export default function App() {
     })();
   },[visite, terapie, promemoria, loading]);
 
+  const tentaSblocco = async () => {
+    const { sblocca } = await import('./blocco');
+    if (await sblocca(t('lock_reason'))) setBloccato(false);
+  };
+
+  // Chiede lo sblocco appena la schermata compare, e ri-blocca quando l'app torna dallo sfondo
+  useEffect(()=>{ if (bloccato) tentaSblocco(); },[bloccato]);
+  useEffect(()=>{
+    if (!blocco) return;
+    const suRitorno = () => { if (document.visibilityState==='visible') setBloccato(true); };
+    document.addEventListener('visibilitychange', suRitorno);
+    return ()=>document.removeEventListener('visibilitychange', suRitorno);
+  },[blocco]);
+
+  const cambiaBlocco = async attiva => {
+    if (!attiva) {
+      setBlocco(false);
+      try { await window.storage.set('ht-blocco','0'); } catch(e){}
+      return null;
+    }
+    const { bloccoDisponibile, sblocca } = await import('./blocco');
+    if (!(await bloccoDisponibile())) return t('lock_unavailable');
+    if (!(await sblocca(t('lock_reason')))) return t('lock_failed');
+    setBlocco(true);
+    try { await window.storage.set('ht-blocco','1'); } catch(e){}
+    return t('lock_on');
+  };
+
   const cambiaPromemoria = async attiva => {
     const { notificheDisponibili, chiediPermesso, aggiornaPromemoria } = await import('./promemoria');
     if (!attiva) {
@@ -2847,6 +2892,20 @@ export default function App() {
   if (loading) return (
     <div className="flex items-center justify-center min-h-screen" style={{background:'#f8faff'}}>
       <div className="text-center"><p className="text-4xl mb-3">⏳</p><p className="text-gray-400">{t('loading')}</p></div>
+    </div>
+  );
+
+  // Schermata di blocco: i dati non vengono mostrati finché non ci si identifica
+  if (bloccato) return (
+    <div className="flex flex-col items-center justify-center min-h-screen px-8" style={{background:'#f8faff'}}>
+      <p className="text-6xl mb-4">🔒</p>
+      <p className="font-black text-gray-800 text-lg">HealthTracker</p>
+      <p className="text-sm text-gray-400 mt-1 text-center">{t('lock_locked')}</p>
+      <button onClick={tentaSblocco}
+        className="mt-6 px-8 py-3.5 rounded-2xl font-bold text-white text-sm"
+        style={{background:'linear-gradient(135deg,#1e3a8a,#2563eb)'}}>
+        {t('lock_unlock')}
+      </button>
     </div>
   );
 
@@ -2975,6 +3034,7 @@ export default function App() {
       {modal?.t==='editT'   && <TerapiaModal iniziale={modal.d} problemi={problemi} onPremium={()=>setModal('premium')} onSave={d=>edit('ht-terapie',setTerapie,d)} onClose={()=>setModal(null)}/>}
       {modal==='export'   && <ExportModal visite={visite} analisi={analisi} vitali={vitali} onClose={()=>setModal(null)}/>}
       {modal==='settings' && <SettingsModal lang={lang} onLang={changeLang} promemoria={promemoria} onPromemoria={cambiaPromemoria}
+        blocco={blocco} onBlocco={cambiaBlocco}
         onExport={()=>setModal('export')} onReferto={()=>setModal('referto')} onStat={()=>setModal('statistiche')} onBackup={()=>setModal('backup')}
         cartella={cartella} onCartella={()=>setModal('cartella')}
         premium={premium} onPremium={()=>setModal('premium')} onClose={()=>setModal(null)}/>}
