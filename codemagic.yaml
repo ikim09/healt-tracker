@@ -70,9 +70,9 @@ workflows:
         script: |
           PBXPROJ="ios/App/App.xcodeproj/project.pbxproj"
 
-          # Solo iPhone
-          sed -i '' 's/TARGETED_DEVICE_FAMILY = "1,2"/TARGETED_DEVICE_FAMILY = 1/g' "$PBXPROJ"
-          echo "App impostata come solo iPhone"
+          # iPhone e iPad (1 = iPhone, 2 = iPad)
+          sed -i '' 's/TARGETED_DEVICE_FAMILY = 1;/TARGETED_DEVICE_FAMILY = "1,2";/g' "$PBXPROJ"
+          echo "App disponibile per iPhone e iPad"
 
           # Rimuovi ogni riferimento a Game Center dal progetto Xcode
           sed -i '' '/com.apple.developer.game-center/d' "$PBXPROJ"

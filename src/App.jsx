@@ -129,8 +129,8 @@ const Txt = ({lbl,...p}) => (
 );
 function Modal({title,onClose,onSave,saveLabel="Salva",saveBg="linear-gradient(135deg,#1e40af,#3b82f6)",children}) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center" style={{background:'rgba(0,0,0,0.55)'}}>
-      <div className="bg-white rounded-t-3xl shadow-2xl w-full max-w-lg" style={{maxHeight:'92vh',display:'flex',flexDirection:'column',paddingBottom:'env(safe-area-inset-bottom)'}}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-6" style={{background:'rgba(0,0,0,0.55)'}}>
+      <div className="bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl w-full max-w-lg" style={{maxHeight:'92vh',display:'flex',flexDirection:'column',paddingBottom:'env(safe-area-inset-bottom)'}}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h3 className="font-bold text-gray-800">{title}</h3>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 font-bold text-lg">×</button>
@@ -364,8 +364,8 @@ function AttachmentViewer({file, onClose}) {
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center" style={{background:'rgba(0,0,0,0.7)'}}>
-      <div className="bg-white rounded-t-3xl shadow-2xl w-full max-w-lg" style={{height:'92vh',display:'flex',flexDirection:'column',paddingBottom:'env(safe-area-inset-bottom)'}}>
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center sm:p-6" style={{background:'rgba(0,0,0,0.7)'}}>
+      <div className="bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl w-full max-w-lg sm:max-w-2xl" style={{height:'92vh',display:'flex',flexDirection:'column',paddingBottom:'env(safe-area-inset-bottom)'}}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xl">{fileIcon(file.type)}</span>
@@ -2712,7 +2712,7 @@ function Dashboard({visite, analisi, vitali, terapie, problemi, ricette, note, a
           )}
 
           {/* Riquadri riepilogo */}
-          <div className="grid grid-cols-2 gap-3 mb-5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
             <Riquadro v={visite.length} l={t('stat_visite')} bg="#eff6ff" c="#1e40af" i="👨‍⚕️" tab="visite"/>
             <Riquadro v={analisi.length} l={t('stat_analisi')} bg="#fff1f2" c="#be123c" i="🩸" tab="analisi"/>
             <Riquadro v={vitali.length} l={t('stat_mis')} bg="#fdf4ff" c="#7e22ce" i="💓" tab="vitali"/>
@@ -3366,7 +3366,7 @@ export default function App() {
       </div>
 
       <div className="flex-1 overflow-y-auto" style={{paddingBottom:'calc(80px + env(safe-area-inset-bottom))'}}>
-        <div className="px-4 py-5 max-w-lg mx-auto">
+        <div className="px-4 py-5 max-w-lg sm:max-w-2xl mx-auto">
           {tab==='home'    && <Dashboard visite={visite} analisi={analisi} vitali={vitali} terapie={terapie} problemi={problemi}
             ricette={ricette} note={note} allergie={allergie} allenamenti={allenamenti} cartella={cartella}
             onGo={id=>{setProblemaAperto(null); setTab(id);}}
