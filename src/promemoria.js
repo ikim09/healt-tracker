@@ -33,6 +33,29 @@ const notifId = id => Math.abs(Number(String(id).slice(-8))) % 2000000000;
 
 // Le notifiche delle terapie usano id in una fascia separata, per non pestarsi con le visite
 const idTerapia = (terapiaId, i) => 1000000000 + (Math.abs(Number(String(terapiaId).slice(-7))) % 900000) * 100 + i;
+const idControllo = (contId, i) => 1500000000 + (Math.abs(Number(String(contId).slice(-7))) % 400000) * 10 + i;
+
+/** Aggiunge mesi a una data ISO restituendo una nuova data. */
+export const aggiungiMesi = (isoData, mesi) => {
+  const [a, m, g] = String(isoData).split('-').map(Number);
+  const d = new Date(a, m - 1 + mesi, g, 9, 0, 0);
+  return d;
+};
+
+/** Le prossime N scadenze di un controllo periodico, a partire da oggi. */
+export function prossimeScadenze(controllo, quante = 3) {
+  const out = [];
+  const adesso = new Date();
+  const ogniMesi = Number(controllo.ogniMesi) || 12;
+  let d = aggiungiMesi(controllo.ultimo || controllo.data, ogniMesi);
+  let giri = 0;
+  while (out.length < quante && giri < 120) {
+    if (d > adesso) out.push(new Date(d));
+    d = aggiungiMesi(d.toISOString().slice(0, 10), ogniMesi);
+    giri++;
+  }
+  return out;
+}
 
 /**
  * Riprogramma tutti i promemoria: visite (giorno prima, ore 9) e terapie (ogni giorno agli orari scelti).
@@ -41,7 +64,7 @@ const idTerapia = (terapiaId, i) => 1000000000 + (Math.abs(Number(String(terapia
  * @param {boolean} attivoVisite
  * @param {Array} terapie  ognuna può avere { orari: ['08:00','20:00'], promemoria: true }
  */
-export async function aggiornaPromemoria(visite, attivoVisite, terapie = []) {
+export async function aggiornaPromemoria(visite, attivoVisite, terapie = [], controlli = []) {
   const p = await getPlugin();
   if (!p) return { ok: false, n: 0, nTerapie: 0 };
 
@@ -90,13 +113,48 @@ export async function aggiornaPromemoria(visite, attivoVisite, terapie = []) {
     });
   }
 
-  if (da.length === 0) return { ok: true, n: 0, nTerapie: 0 };
+  // --- Terapie in scadenza: avviso 3 giorni prima della fine ---
+  for (const x of terapie) {
+    if (!x.fine || !x.promemoria) continue;
+    const [a, m, g] = String(x.fine).split('-').map(Number);
+    const quando = new Date(a, m - 1, g - 3, 10, 0, 0);
+    if (quando <= adesso) continue;
+    da.push({
+      id: idTerapia(x.id, 90),
+      title: t('med_end_title'),
+      body: t('med_end_body', x.farmaco, tOra(x.fine)),
+      schedule: { at: quando, allowWhileIdle: true },
+    });
+  }
+
+  // --- Controlli periodici: le prossime scadenze di ognuno ---
+  let nControlli = 0;
+  for (const c of controlli) {
+    if (c.attivo === false) continue;
+    prossimeScadenze(c, 3).forEach((quando, i) => {
+      da.push({
+        id: idControllo(c.id, i),
+        title: t('rec_notif_title'),
+        body: t('rec_notif_body', c.titolo),
+        schedule: { at: quando, allowWhileIdle: true },
+      });
+      nControlli++;
+    });
+  }
+
+  if (da.length === 0) return { ok: true, n: 0, nTerapie: 0, nControlli: 0 };
   try {
-    await p.schedule({ notifications: da.slice(0, 60) });   // iOS ne consente 64 in sospeso
-    return { ok: true, n: da.length, nTerapie };
+    // iOS ne consente 64 in sospeso: si tengono le più imminenti
+    const ordinate = da.slice().sort((x, y) => {
+      const dx = x.schedule?.at ? x.schedule.at.getTime() : 0;
+      const dy = y.schedule?.at ? y.schedule.at.getTime() : 0;
+      return dx - dy;
+    });
+    await p.schedule({ notifications: ordinate.slice(0, 60) });
+    return { ok: true, n: Math.min(da.length, 60), nTerapie, nControlli };
   } catch (e) {
     console.error('[promemoria]', e);
-    return { ok: false, n: 0, nTerapie: 0 };
+    return { ok: false, n: 0, nTerapie: 0, nControlli: 0 };
   }
 }
 

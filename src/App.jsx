@@ -962,6 +962,109 @@ function TerapiaCard({x, onEdit, onDel, conclusa}) {
 }
 
 // --- Cartella clinica: i dati da avere sempre sottomano ---
+const OGNI_MESI = [3,6,12,24];
+const MODELLI_CONTROLLO = [
+  {titolo:'Analisi del sangue', ogniMesi:6},
+  {titolo:'Visita dal dentista', ogniMesi:12},
+  {titolo:'Visita oculistica', ogniMesi:24},
+  {titolo:'Controllo pressione', ogniMesi:3},
+];
+
+function ControlliModal({controlli, onSalva, onPremium, onClose}) {
+  const bloccato = ACQUISTI_ATTIVI && !isPremium();
+  const oggi = new Date().toISOString().slice(0,10);
+  const [nuovo, setNuovo] = useState(null);
+
+  const apri = (modello) => {
+    if (bloccato) { onPremium(); return; }
+    setNuovo(modello
+      ? {titolo:modello.titolo, ogniMesi:modello.ogniMesi, ultimo:oggi, attivo:true}
+      : {titolo:'', ogniMesi:12, ultimo:oggi, attivo:true});
+  };
+  const conferma = () => {
+    const titolo = nuovo.titolo.trim(); if(!titolo) return;
+    const id = nuovo.id ?? Date.now();
+    const senza = controlli.filter(c=>c.id!==id);
+    onSalva([...senza, {...nuovo, id, titolo}].sort((a,b)=>a.titolo.localeCompare(b.titolo)));
+    setNuovo(null);
+  };
+  const prossima = c => {
+    const [a,m,g] = String(c.ultimo||c.data).split('-').map(Number);
+    const d = new Date(a, m-1+Number(c.ogniMesi||12), g);
+    return d.toISOString().slice(0,10);
+  };
+  const giorniA = iso => Math.round((new Date(iso) - new Date(oggi))/86400000);
+
+  if (nuovo) return (
+    <Modal title={nuovo.id?t('rec_edit'):t('rec_new')} onClose={()=>setNuovo(null)}
+      onSave={nuovo.titolo.trim()?conferma:null} saveLabel={t('save')} saveBg="linear-gradient(135deg,#7c2d12,#ea580c)">
+      <Inp lbl={t('rec_what')} placeholder={t('rec_what_ph')} value={nuovo.titolo} onChange={e=>setNuovo(n=>({...n,titolo:e.target.value}))}/>
+      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{t('rec_every')}</p>
+      <div className="flex gap-2 mb-3">
+        {OGNI_MESI.map(m=>(
+          <button key={m} onClick={()=>setNuovo(n=>({...n,ogniMesi:m}))}
+            className="flex-1 py-2.5 rounded-xl text-xs font-bold border transition-all"
+            style={Number(nuovo.ogniMesi)===m?{background:'#ea580c',color:'white',borderColor:'#ea580c'}:{background:'white',color:'#6b7280',borderColor:'#e5e7eb'}}>
+            {t('rec_months',m)}
+          </button>
+        ))}
+      </div>
+      <Inp lbl={t('rec_last')} type="date" value={nuovo.ultimo} onChange={e=>setNuovo(n=>({...n,ultimo:e.target.value}))}/>
+      <p className="text-xs text-gray-300 -mt-1">{t('rec_last_hint')}</p>
+    </Modal>
+  );
+
+  return (
+    <Modal title={t('rec_title')} onClose={onClose}>
+      <p className="text-sm text-gray-400 mb-4">{t('rec_desc')}</p>
+
+      {controlli.length>0&&(
+        <div className="space-y-2 mb-4">
+          {controlli.map(c=>{
+            const p = prossima(c), g = giorniA(p), scaduto = g<0;
+            return (
+              <div key={c.id} className="rounded-2xl px-3 py-3 border flex items-center gap-3"
+                style={{background:c.attivo===false?'#f9fafb':'white', borderColor:scaduto&&c.attivo!==false?'#fecdd3':'#f3f4f6'}}>
+                <span className="text-xl">{scaduto&&c.attivo!==false?'⚠️':'🔁'}</span>
+                <span className="flex-1 min-w-0">
+                  <span className={`block text-sm font-bold truncate ${c.attivo===false?'text-gray-400':'text-gray-800'}`}>{c.titolo}</span>
+                  <span className="block text-xs" style={{color:scaduto&&c.attivo!==false?'#be123c':'#9ca3af'}}>
+                    {t('rec_every_short',c.ogniMesi)} · {scaduto?t('rec_overdue',Math.abs(g)):t('rec_next',fmt(p))}
+                  </span>
+                </span>
+                <button onClick={()=>onSalva(controlli.map(x=>x.id===c.id?{...x,attivo:x.attivo===false}:x))}
+                  className="w-9 h-9 rounded-xl flex items-center justify-center text-base"
+                  style={{background:c.attivo===false?'#f3f4f6':'#fff7ed'}}>{c.attivo===false?'▶️':'⏸'}</button>
+                <BtnModifica onClick={()=>setNuovo(c)}/>
+                <button onClick={()=>onSalva(controlli.filter(x=>x.id!==c.id))} className="text-gray-200 hover:text-red-400 text-xl">🗑</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {controlli.length===0&&(
+        <div className="mb-4">
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('rec_suggested')}</p>
+          <div className="grid grid-cols-2 gap-2">
+            {MODELLI_CONTROLLO.map(m=>(
+              <button key={m.titolo} onClick={()=>apri(m)} className="rounded-2xl p-3 text-left" style={{background:'#fff7ed'}}>
+                <p className="text-sm font-bold text-gray-700">{tv(m.titolo)}</p>
+                <p className="text-xs text-gray-400">{t('rec_every_short',m.ogniMesi)}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <button onClick={()=>apri(null)} className="w-full py-3 rounded-2xl font-bold text-sm text-white" style={{background:'linear-gradient(135deg,#7c2d12,#ea580c)'}}>
+        {bloccato ? `✨ ${t('rec_unlock')}` : `+ ${t('rec_add')}`}
+      </button>
+      <p className="text-xs text-gray-300 text-center mt-3">{t('rec_note')}</p>
+    </Modal>
+  );
+}
+
 const EMOJI_PROFILO = ['🙂','👦','👧','👨','👩','👴','👵','🐶','🐱','❤️'];
 
 function ProfiliModal({profili, attivo, onCambia, onSalva, onElimina, onPremium, onClose}) {
@@ -2331,7 +2434,7 @@ function PremiumModal({onSbloccato, onClose}) {
   );
 }
 
-function SettingsModal({lang, onLang, promemoria, onPromemoria, blocco, onBlocco, onExport, onReferto, onStat, onBackup, onCartella, cartella, premium, onPremium, onClose}) {
+function SettingsModal({lang, onLang, promemoria, onPromemoria, blocco, onBlocco, nControlli, onControlli, onExport, onReferto, onStat, onBackup, onCartella, cartella, premium, onPremium, onClose}) {
   const [info, setInfo] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -2367,6 +2470,7 @@ function SettingsModal({lang, onLang, promemoria, onPromemoria, blocco, onBlocco
         </button>
       </div>
       {msgB&&<p className="text-xs text-gray-400 px-2 -mt-1 mb-2">{msgB}</p>}
+      <Row icon="🔁" label={t('rec_title')} desc={nControlli>0?t('rec_row_n',nControlli):t('rec_row_desc')} onClick={onControlli}/>
       <div className="w-full flex items-center gap-3 bg-gray-50 rounded-2xl p-4 mb-2">
         <span className="text-2xl">🔔</span>
         <span className="flex-1 min-w-0">
@@ -3016,6 +3120,7 @@ export default function App() {
   const [problemi, setProblemi] = useState([]);
   const [allergie, setAllergie] = useState([]);
   const [esami, setEsami] = useState([]);
+  const [controlli, setControlli] = useState([]);
   const [cartella, setCartella] = useState(null);
   const [premium, setPremiumState] = useState(false);
   const [blocco, setBlocco] = useState(false);             // impostazione attiva
@@ -3065,12 +3170,12 @@ export default function App() {
     let vivo = true;
     (async()=>{
       setLoading(true);
-      const vuoti = [setVisite,setAnalisi,setVitali,setAllenamenti,setRicette,setNote,setTerapie,setProblemi,setAllergie,setEsami];
+      const vuoti = [setVisite,setAnalisi,setVitali,setAllenamenti,setRicette,setNote,setTerapie,setProblemi,setAllergie,setEsami,setControlli];
       vuoti.forEach(fn=>fn([]));
       setCartella(null); setParametri([]); setProblemaAperto(null);
       try { const r=await window.storage.get(kp('ht-cartella')); if(r?.value) setCartella(JSON.parse(r.value)); } catch(e){}
       try { const r=await window.storage.get(kp('ht-parametri')); if(r?.value) setParametri(JSON.parse(r.value)); } catch(e){}
-      for (const [k,fn] of [[kp('ht-visite'),setVisite],[kp('ht-analisi'),setAnalisi],[kp('ht-allenamenti'),setAllenamenti],[kp('ht-ricette'),setRicette],[kp('ht-note'),setNote],[kp('ht-terapie'),setTerapie],[kp('ht-problemi'),setProblemi],[kp('ht-allergie'),setAllergie],[kp('ht-esami'),setEsami]]) {
+      for (const [k,fn] of [[kp('ht-visite'),setVisite],[kp('ht-analisi'),setAnalisi],[kp('ht-allenamenti'),setAllenamenti],[kp('ht-ricette'),setRicette],[kp('ht-note'),setNote],[kp('ht-terapie'),setTerapie],[kp('ht-problemi'),setProblemi],[kp('ht-allergie'),setAllergie],[kp('ht-esami'),setEsami],[kp('ht-controlli'),setControlli]]) {
         try { const r=await window.storage.get(k); if(r) fn(JSON.parse(r.value)); } catch(e){}
       }
       try {
@@ -3153,12 +3258,13 @@ export default function App() {
   useEffect(()=>{
     if (loading) return;
     const conOrari = terapie.some(x=>x.promemoria && x.orari?.length);
-    if (!promemoria && !conOrari) return;
+    const conControlli = controlli.some(c=>c.attivo!==false);
+    if (!promemoria && !conOrari && !conControlli) return;
     (async()=>{
       const { aggiornaPromemoria } = await import('./promemoria');
-      await aggiornaPromemoria(visite, promemoria, terapie);
+      await aggiornaPromemoria(visite, promemoria, terapie, controlli);
     })();
-  },[visite, terapie, promemoria, loading]);
+  },[visite, terapie, controlli, promemoria, loading]);
 
   const tentaSblocco = async () => {
     const { sblocca } = await import('./blocco');
@@ -3373,6 +3479,7 @@ export default function App() {
       {modal==='export'   && <ExportModal visite={visite} analisi={analisi} vitali={vitali} onClose={()=>setModal(null)}/>}
       {modal==='settings' && <SettingsModal lang={lang} onLang={changeLang} promemoria={promemoria} onPromemoria={cambiaPromemoria}
         blocco={blocco} onBlocco={cambiaBlocco}
+        nControlli={controlli.filter(c=>c.attivo!==false).length} onControlli={()=>setModal('controlli')}
         onExport={()=>setModal('export')} onReferto={()=>setModal('referto')} onStat={()=>setModal('statistiche')} onBackup={()=>setModal('backup')}
         cartella={cartella} onCartella={()=>setModal('cartella')}
         premium={premium} onPremium={()=>setModal('premium')} onClose={()=>setModal(null)}/>}
@@ -3381,6 +3488,9 @@ export default function App() {
         onPremium={()=>setModal('premium')} onClose={()=>setModal(null)}/>}
       {modal==='backup' && <BackupModal onClose={()=>setModal(null)}/>}
       {modal==='statistiche' && <StatisticheModal dati={{analisi,vitali,allenamenti,visite,esami}}
+        onPremium={()=>setModal('premium')} onClose={()=>setModal(null)}/>}
+      {modal==='controlli' && <ControlliModal controlli={controlli}
+        onSalva={u=>{ setControlli(u); sv(kp('ht-controlli'), u); }}
         onPremium={()=>setModal('premium')} onClose={()=>setModal(null)}/>}
       {modal==='profili' && <ProfiliModal profili={profili} attivo={profilo}
         onCambia={id=>salvaProfili(profili, id)}
