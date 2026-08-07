@@ -8,8 +8,7 @@
 export const ACQUISTI_ATTIVI = true;
 
 export const PRODOTTO = 'com.ikim.healthtracker.allegati';
-// 20 era il limite già pubblicato nella 1.0.3: non viene tolto a chi ce l'ha
-export const MAX_GRATIS = 20;
+export const MAX_GRATIS = 4;
 export const MAX_PREMIUM = 50;
 
 let premium = false;
