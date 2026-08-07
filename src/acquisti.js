@@ -5,10 +5,11 @@
 // Interruttore generale: finché è false l'app non mostra nulla di acquistabile
 // e gli allegati restano illimitati per tutti. Metterlo a true quando il prodotto
 // sarà configurato su App Store Connect e i contratti firmati.
-export const ACQUISTI_ATTIVI = false;
+export const ACQUISTI_ATTIVI = true;
 
 export const PRODOTTO = 'com.ikim.healthtracker.allegati';
-export const MAX_GRATIS = 4;
+// 20 era il limite già pubblicato nella 1.0.3: non viene tolto a chi ce l'ha
+export const MAX_GRATIS = 20;
 export const MAX_PREMIUM = 50;
 
 let premium = false;
@@ -33,7 +34,10 @@ export async function caricaStato() {
   return premium;
 }
 
-const store = () => (ACQUISTI_ATTIVI ? (window.CdvPurchase?.store || null) : null);
+const store = () => {
+  if (!ACQUISTI_ATTIVI || typeof window === 'undefined') return null;
+  return window.CdvPurchase?.store || null;
+};
 
 /** Gli acquisti esistono solo nell'app installata, non nel browser. */
 export const acquistiDisponibili = () => !!store();
