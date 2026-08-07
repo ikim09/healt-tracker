@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Screenshot per App Store — Diario della Salute</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f3f4f6;color:#1f2937;padding:24px}
+  h1{font-size:22px;font-weight:900;color:#1e3a8a;margin-bottom:4px}
+  .sub{font-size:13px;color:#6b7280;margin-bottom:20px}
+  .wrap{max-width:1100px;margin:0 auto;display:grid;grid-template-columns:320px 1fr;gap:20px;align-items:start}
+  .pannello{background:#fff;border-radius:16px;padding:18px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
+  label{display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;margin:14px 0 5px}
+  label:first-of-type{margin-top:0}
+  input[type=text],select{width:100%;padding:9px 11px;border:1px solid #e5e7eb;border-radius:10px;font-size:14px;font-family:inherit}
+  input[type=file]{width:100%;font-size:12px}
+  .colori{display:flex;gap:7px;flex-wrap:wrap;margin-top:4px}
+  .colore{width:34px;height:34px;border-radius:9px;border:3px solid transparent;cursor:pointer}
+  .colore.sel{border-color:#1f2937}
+  button{width:100%;padding:12px;border:0;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;margin-top:16px;
+    background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff}
+  button.sec{background:#f3f4f6;color:#4b5563;margin-top:8px}
+  canvas{width:100%;height:auto;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.1);background:#fff}
+  .nota{font-size:12px;color:#6b7280;line-height:1.6;margin-top:14px;background:#eff6ff;padding:12px;border-radius:10px}
+  .nota b{color:#1e40af}
+  .misura{font-size:11px;color:#9ca3af;margin-top:6px;text-align:center}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="pannello">
+    <h1>Screenshot App Store</h1>
+    <p class="sub">Componi le tue catture nei formati richiesti da Apple.</p>
+
+    <label>1. Formato richiesto</label>
+    <select id="formato">
+      <option value="1290x2796">iPhone 6.9" — 1290 × 2796</option>
+      <option value="1320x2868">iPhone 6.9" alt — 1320 × 2868</option>
+      <option value="1242x2688">iPhone 6.5" — 1242 × 2688</option>
+      <option value="2064x2752">iPad 13" — 2064 × 2752</option>
+      <option value="2048x2732">iPad 12.9" — 2048 × 2732</option>
+    </select>
+
+    <label>2. La tua cattura</label>
+    <input type="file" id="file" accept="image/*">
+
+    <label>3. Titolo</label>
+    <input type="text" id="titolo" placeholder="Es. Tutti i referti in un posto" maxlength="42">
+
+    <label>4. Sottotitolo (facoltativo)</label>
+    <input type="text" id="sotto" placeholder="Es. Foto e PDF sempre a portata di mano" maxlength="60">
+
+    <label>5. Sfondo</label>
+    <div class="colori" id="colori"></div>
+
+    <label>6. Testo</label>
+    <select id="posizione">
+      <option value="alto">Testo in alto</option>
+      <option value="basso">Testo in basso</option>
+      <option value="senza">Senza testo</option>
+    </select>
+
+    <button onclick="scarica()">⬇️ Scarica PNG</button>
+    <button class="sec" onclick="location.reload()">Ricomincia</button>
+
+    <div class="nota">
+      <b>Come catturare:</b> sull'iPhone premi insieme tasto laterale e volume su. Su iPad tasto superiore e volume su.
+      Usa dati realistici, non schermate vuote: Apple rifiuta gli screenshot che non mostrano l'app reale.
+    </div>
+  </div>
+
+  <div class="pannello">
+    <canvas id="tela"></canvas>
+    <p class="misura" id="misura"></p>
+  </div>
+</div>
+
+<script>
+const SFONDI = [
+  ['#1e3a8a','#2563eb'], ['#be123c','#f43f5e'], ['#0f766e','#14b8a6'],
+  ['#7c2d12','#ea580c'], ['#4338ca','#6366f1'], ['#7e22ce','#a855f7'],
+  ['#166534','#22c55e'], ['#f8faff','#e0e7ff'],
+];
+let sfondo = 0, immagine = null;
+
+const tela = document.getElementById('tela');
+const ctx = tela.getContext('2d');
+
+// tavolozza
+SFONDI.forEach((c,i)=>{
+  const d = document.createElement('div');
+  d.className = 'colore' + (i===0?' sel':'');
+  d.style.background = `linear-gradient(135deg, ${c[0]}, ${c[1]})`;
+  d.onclick = () => {
+    sfondo = i;
+    document.querySelectorAll('.colore').forEach(x=>x.classList.remove('sel'));
+    d.classList.add('sel');
+    disegna();
+  };
+  document.getElementById('colori').appendChild(d);
+});
+
+document.getElementById('file').onchange = e => {
+  const f = e.target.files[0]; if(!f) return;
+  const img = new Image();
+  img.onload = () => { immagine = img; disegna(); };
+  img.src = URL.createObjectURL(f);
+};
+['formato','titolo','sotto','posizione'].forEach(id=>{
+  document.getElementById(id).oninput = disegna;
+  document.getElementById(id).onchange = disegna;
+});
+
+function disegna() {
+  const [W,H] = document.getElementById('formato').value.split('x').map(Number);
+  tela.width = W; tela.height = H;
+  document.getElementById('misura').textContent = `${W} × ${H} px`;
+
+  // sfondo
+  const [c1,c2] = SFONDI[sfondo];
+  const g = ctx.createLinearGradient(0,0,W,H);
+  g.addColorStop(0,c1); g.addColorStop(1,c2);
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+
+  const pos = document.getElementById('posizione').value;
+  const titolo = document.getElementById('titolo').value.trim();
+  const sotto = document.getElementById('sotto').value.trim();
+  const chiaro = sfondo === SFONDI.length-1;        // ultimo sfondo è chiaro
+  const testoCol = chiaro ? '#1e3a8a' : '#ffffff';
+  const sottoCol = chiaro ? 'rgba(30,58,138,.65)' : 'rgba(255,255,255,.8)';
+
+  const conTesto = pos !== 'senza' && (titolo || sotto);
+  const spazioTesto = conTesto ? H*0.17 : H*0.05;
+
+  // testo
+  if (conTesto) {
+    const yBase = pos==='alto' ? H*0.075 : H - spazioTesto + H*0.045;
+    ctx.textAlign = 'center';
+    if (titolo) {
+      ctx.fillStyle = testoCol;
+      ctx.font = `900 ${Math.round(W*0.062)}px -apple-system, "Segoe UI", sans-serif`;
+      righe(titolo, W*0.86).forEach((r,i)=> ctx.fillText(r, W/2, yBase + i*W*0.075));
+    }
+    if (sotto) {
+      const off = titolo ? righe(titolo, W*0.86).length * W*0.075 + W*0.012 : 0;
+      ctx.fillStyle = sottoCol;
+      ctx.font = `500 ${Math.round(W*0.034)}px -apple-system, "Segoe UI", sans-serif`;
+      righe(sotto, W*0.8).forEach((r,i)=> ctx.fillText(r, W/2, yBase + off + i*W*0.045));
+    }
+  }
+
+  // immagine con cornice e ombra
+  if (immagine) {
+    const areaY = pos==='basso' ? H*0.045 : (conTesto ? spazioTesto : H*0.05);
+    const areaH = H - spazioTesto - H*0.05;
+    const areaW = W*0.82;
+    const scala = Math.min(areaW/immagine.width, areaH/immagine.height);
+    const w = immagine.width*scala, h = immagine.height*scala;
+    const x = (W-w)/2, y = areaY + (areaH-h)/2;
+    const r = Math.round(w*0.055);
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,.3)';
+    ctx.shadowBlur = W*0.035; ctx.shadowOffsetY = W*0.012;
+    ctx.beginPath(); arrotondato(x,y,w,h,r); ctx.fillStyle='#000'; ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.beginPath(); arrotondato(x,y,w,h,r); ctx.clip();
+    ctx.drawImage(immagine, x, y, w, h);
+    ctx.restore();
+  } else {
+    ctx.textAlign='center';
+    ctx.fillStyle = chiaro ? 'rgba(30,58,138,.35)' : 'rgba(255,255,255,.5)';
+    ctx.font = `600 ${Math.round(W*0.035)}px -apple-system, sans-serif`;
+    ctx.fillText('Carica una cattura per vedere l\'anteprima', W/2, H/2);
+  }
+}
+
+function arrotondato(x,y,w,h,r){
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);     ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+
+// spezza il testo su più righe in base alla larghezza
+function righe(testo, maxW){
+  const parole = testo.split(' '); const out=[]; let riga='';
+  parole.forEach(p=>{
+    const prova = riga ? riga+' '+p : p;
+    if (ctx.measureText(prova).width > maxW && riga) { out.push(riga); riga = p; }
+    else riga = prova;
+  });
+  if (riga) out.push(riga);
+  return out;
+}
+
+function scarica(){
+  const nome = (document.getElementById('titolo').value.trim() || 'screenshot')
+    .toLowerCase().replace(/[^a-z0-9]+/g,'-').slice(0,40);
+  const misura = document.getElementById('formato').value;
+  const a = document.createElement('a');
+  a.download = `${nome}-${misura}.png`;
+  a.href = tela.toDataURL('image/png');
+  a.click();
+}
+
+disegna();
+</script>
+
+</body>
+</html>
